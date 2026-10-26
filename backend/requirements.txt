@@ -17,7 +17,7 @@ segno>=1.6
 # GitHub OAuth token storage uses Fernet authenticated encryption.
 
 # Optional: only needed if you set ANTHROPIC_API_KEY to enable stage-5 LLM refinement
-anthropic>=0.34
+anthropic>=2.2.0
 
 # Optional: only needed for Postgres in production (swap DATABASE_URL)
 psycopg[binary]>=3.1
