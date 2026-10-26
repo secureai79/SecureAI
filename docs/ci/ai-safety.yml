@@ -1,0 +1,24 @@
+# Copy to .github/workflows/ai-safety.yml in the repository you want to protect.
+name: AI Safety Check
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write      # sticky PR comment
+  security-events: write    # SARIF -> Security tab and inline PR annotations
+
+jobs:
+  ai-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: YOUR-ORG/ai-safety-startup-pilot@v1     # or a path to this action if vendored
+        with:
+          policy: .aisafety.yml
+          # javascript: "true"      # enable full JS/TS analysis (installs the TypeScript parser)

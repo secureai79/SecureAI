@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy — SecureAI</title><meta name="robots" content="index,follow">
+<style>:root{color-scheme:light dark;--bg:#f5f3ee;--panel:#fff;--text:#171923;--muted:#566075;--line:#e3e0d8;--accent:#6c60e9}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1320;--panel:#151b2b;--text:#e8ecf5;--muted:#9aa5bd;--line:#26304a;--accent:#9d93ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 Inter,"Segoe UI",system-ui,sans-serif}
+header{max-width:820px;margin:0 auto;padding:22px 20px;display:flex;justify-content:space-between;align-items:center}
+.brand{font-weight:800;font-size:19px;text-decoration:none;color:var(--text)}header a.back{color:var(--accent);font-weight:700;text-decoration:none;font-size:14px}
+main{max-width:820px;margin:0 auto 60px;padding:34px 28px;background:var(--panel);border:1px solid var(--line);border-radius:18px}
+h1{margin:0 0 4px;font-size:32px;letter-spacing:-.02em}.updated{color:var(--muted);font-size:14px;margin:0 0 26px}
+h2{margin:30px 0 8px;font-size:20px}p,li{color:var(--text)}ul{padding-left:22px}li{margin:4px 0}a{color:var(--accent)}
+.note{background:rgba(108,96,233,.1);border-radius:12px;padding:12px 16px;font-size:14px;color:var(--muted)}
+footer{max-width:820px;margin:0 auto 40px;padding:0 20px;color:var(--muted);font-size:13px}footer a{margin-right:14px}</style></head>
+<body>
+<header><a class="brand" href="index.html">secureai.</a><a class="back" href="login.html">Log in</a></header>
+<main>
+<h1>Privacy Policy</h1><p class="updated">Last updated: {{DATE}}</p>
+<p class="note">This policy explains what {{COMPANY}} ("we") collects when you use SecureAI, why, who else handles it, and your choices. Questions: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>.</p>
+
+<h2>1. What we collect</h2>
+<ul>
+<li><b>Account:</b> your email address, a salted hash of your password (we never store the password itself), your workspace name and your role.</li>
+<li><b>Team:</b> the email addresses of people you invite, and who invited them.</li>
+<li><b>Repositories and scans:</b> repository names and URLs you add, and the results of scans: findings, risk scores and short explanatory messages.</li>
+<li><b>Security and abuse logs:</b> sign-in and account-security events with the time and IP address, used to protect accounts and apply rate limits.</li>
+<li><b>Support:</b> the messages you send us through the help form or by email.</li>
+</ul>
+
+<h2>2. Your source code</h2>
+<p>To scan a repository we copy it into a temporary workspace, analyse it statically (we do not run your code) and delete the workspace when the scan ends. By default we do <b>not</b> store raw source snippets: only structured findings are kept. Optional AI-based refinement of findings is <b>off</b> unless the operator of the service switches it on and records a privacy acknowledgement; in that case only short, redacted excerpts of flagged code are eligible.</p>
+<p>When you connect GitHub we use a GitHub App with repository-scoped, read-only access. Short-lived access tokens are fetched when needed. We never ask for your GitHub password or one-time codes.</p>
+
+<h2>3. How long we keep it</h2>
+<ul>
+<li>Scan results are deleted automatically after 30 days (unless the service is configured otherwise).</li>
+<li>Account and workspace data is kept until you ask us to delete it or the workspace is deleted.</li>
+<li>Security logs are kept for a limited period needed to investigate abuse and incidents.</li>
+<li>Encrypted database backups are overwritten on a rolling schedule and can take up to {{BACKUP_RETENTION}} to expire after a deletion.</li>
+</ul>
+
+<h2>4. Who else handles your data</h2>
+<p>We use these service providers (sub-processors) to run SecureAI. They process data only on our instructions:</p>
+<ul>
+<li>Cloudflare: website hosting and delivery.</li>
+<li>{{BACKEND_HOST}}: application hosting ({{HOSTING_REGION}}).</li>
+<li>Neon: managed PostgreSQL database.</li>
+<li>Brevo: sending transactional email (account confirmation, password reset, invitations, support).</li>
+<li>GitHub: repository access you authorise.</li>
+<li>Sentry (if enabled): error reports with credentials, request bodies and personal data removed.</li>
+</ul>
+<p>We do not sell personal data and we do not use advertising or analytics trackers.</p>
+
+<h2>5. Security</h2>
+<p>Connections use TLS. Passwords are hashed, stored secrets such as GitHub tokens are encrypted, two-factor authentication is available, and sensitive actions are recorded in an audit log. No system is perfectly secure; if we learn of a breach affecting you we will tell you without undue delay.</p>
+
+<h2>6. Cookies and local storage</h2>
+<p>SecureAI sets no cookies. Your browser stores your sign-in session and display preferences (theme, layout) locally so the app works; clearing it signs you out.</p>
+
+<h2>7. Your rights</h2>
+<p>You can ask us to give you a copy of your data, correct it, or delete it, and you can object to or restrict certain processing. Workspace owners can delete scan data inside the product; for anything else write to <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> and we will respond within 30 days. You may also complain to your local data-protection authority.</p>
+
+<h2>8. International transfers and children</h2>
+<p>Data is hosted in {{HOSTING_REGION}}; our providers may process it in other countries under appropriate safeguards. SecureAI is for business use and not for anyone under 16.</p>
+
+<h2>9. Changes and contact</h2>
+<p>We will post changes here and, for material changes, tell workspace owners by email. Contact: {{COMPANY}}, {{ADDRESS}}, <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>.</p>
+</main>
+<footer><a href="terms.html">Terms of Service</a><a href="index.html">Home</a><span>&copy; {{COMPANY}}</span></footer>
+</body></html>

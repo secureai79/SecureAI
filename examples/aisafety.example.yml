@@ -1,0 +1,34 @@
+# .aisafety.yml - what is allowed to merge. Unknown keys are errors on purpose.
+version: 1
+
+fail_on: high            # critical | high | medium | low | none
+min_score: 60            # optional floor for the overall score
+max_findings:            # optional caps (counted across blocking + warning + existing)
+  critical: 0
+new_only: true           # in PRs, only findings introduced by the PR can block
+
+ignore_paths:
+  - "tests/**"
+  - "examples/**"
+
+rules:                   # first matching rule wins
+  - id: no-ai-shell
+    match: {category: INFRASTRUCTURE, capability: execute, ai_controlled: true}
+    action: block
+    message: "AI output must never reach a shell."
+  - id: lethal-trifecta
+    match: {capability: lethal_trifecta}
+    action: block
+    even_if_existing: true     # block even if it was already on main
+    message: "One agent must not combine untrusted content, private data and an outbound channel."
+  - id: payments-need-approval
+    match: {category: FINANCIAL, human_approval: false}
+    action: block
+  - id: injection-leads-are-advisory
+    match: {category: PROMPT_INJECTION, severity: low}
+    action: warn
+
+suppressions:            # accepted risk: needs a reason and an expiry date
+  - fingerprint: "0000000000000000"
+    reason: "Reviewed by security 2026-10-01; runs in a no-network sandbox."
+    expires: 2027-01-31

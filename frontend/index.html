@@ -1,0 +1,2505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script src="config.js"></script>
+<meta charset="utf-8" />
+<title>SecureAI — AI Security Posture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0a0b0f; --bg-grad: radial-gradient(1200px 600px at 50% -10%, #1b1440 0%, #0a0b0f 55%);
+    --panel: #13141b; --panel2: #191b24; --border: #262835; --border-soft: #1d1f2a;
+    --text: #eef0f6; --muted: #8d92a5; --muted2: #6b7086;
+    --critical: #f5484b; --high: #f9973a; --medium: #f2c94c; --low: #34d399;
+    --accent: #7c6cf6; --accent2: #a78bfa;
+    --radius: 18px; --radius-sm: 12px;
+    --shadow: 0 8px 30px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-grad); background-color: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 18px 90px; }
+
+  /* ---------- Header ---------- */
+  .hero { text-align: center; margin-bottom: 28px; }
+  .hero .logo { font-size: 13px; letter-spacing: .14em; color: var(--accent2); font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+  .hero h1 { font-size: 26px; margin: 0 0 8px; font-weight: 700; letter-spacing: -0.01em; }
+  .hero p { color: var(--muted); font-size: 14.5px; margin: 0; line-height: 1.5; }
+
+  /* ---------- Cards ---------- */
+  .card {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel) 100%);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 22px;
+    margin-bottom: 16px; box-shadow: var(--shadow);
+  }
+  .card-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 14px; }
+
+  input, button, select { font: inherit; }
+  input {
+    width: 100%; padding: 12px 14px; background: #0e0f16; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); margin-bottom: 10px; font-size: 14px;
+  }
+  input::placeholder { color: var(--muted2); }
+  input:focus { outline: none; border-color: var(--accent); }
+
+  button {
+    padding: 12px 18px; background: linear-gradient(135deg, var(--accent), #6753e0); color: white;
+    border: none; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 14px;
+    transition: transform .1s ease, opacity .15s ease;
+  }
+  button:hover { opacity: .92; }
+  button:active { transform: scale(0.98); }
+  button.secondary { background: #1a1c26; border: 1px solid var(--border); color: var(--text); }
+  button.ghost { background: transparent; border: none; color: var(--accent2); padding: 6px 0; font-weight: 600; font-size: 13px; }
+  button.block { width: 100%; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  .or-sep { text-align: center; color: var(--muted2); font-size: 12px; margin: 12px 0; position: relative; }
+  .or-sep::before, .or-sep::after { content: ""; position: absolute; top: 50%; width: 38%; height: 1px; background: var(--border); }
+  .or-sep::before { left: 0; } .or-sep::after { right: 0; }
+
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+  .error { color: var(--critical); font-size: 13px; margin-bottom: 10px; }
+  .muted { color: var(--muted); }
+
+  details.advanced { margin-top: 4px; }
+  details.advanced summary { cursor: pointer; font-size: 12px; color: var(--muted2); list-style: none; user-select: none; }
+  details.advanced summary::-webkit-details-marker { display: none; }
+  details.advanced summary:before { content: "⚙ "; }
+  details.advanced[open] summary { margin-bottom: 8px; }
+
+  /* ---------- Score hero ---------- */
+  .score-card { text-align: center; padding: 30px 22px; position: relative; overflow: hidden; }
+  .score-ring {
+    width: 168px; height: 168px; border-radius: 50%; margin: 0 auto 6px;
+    display: flex; align-items: center; justify-content: center;
+    background: conic-gradient(var(--ring-color, var(--low)) calc(var(--pct, 0) * 1%), #22242f calc(var(--pct, 0) * 1%));
+    position: relative;
+  }
+  .score-ring::before { content: ""; position: absolute; inset: 10px; border-radius: 50%; background: var(--panel); }
+  .score-ring-inner { position: relative; z-index: 1; }
+  .score-num { font-size: 40px; font-weight: 800; line-height: 1; }
+  .score-max { font-size: 13px; color: var(--muted); }
+  .risk-label { font-weight: 700; letter-spacing: .06em; margin: 14px 0 4px; font-size: 14px; text-transform: uppercase; }
+  .counts-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .count-pill { font-size: 12px; padding: 5px 12px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); }
+  .count-pill b { color: var(--text); }
+  .score-footnote { font-size: 11.5px; color: var(--muted2); margin-top: 16px; line-height: 1.5; }
+  .main-concern-line { font-size: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+
+  /* ---------- Domain scores ---------- */
+.domain-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.domain-score-card {
+  padding: 20px;
+  text-align: center;
+}
+
+.domain-score-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.domain-score-description {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  min-height: 34px;
+}
+
+.domain-score-number {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 14px;
+}
+
+.domain-score-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  margin-top: 7px;
+}
+
+.domain-score-counts {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.domain-score-counts .count-pill {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+@media (max-width: 800px) {
+  .domain-score-grid {
+    grid-template-columns: 1fr;
+  }
+}
+  /* ---------- What your AI can do ---------- */
+  .capability-grid { display: flex; flex-direction: column; gap: 10px; }
+  .capability-chip {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm);
+    background: var(--panel2); border: 1px solid var(--border);
+  }
+  .cap-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .cap-label { font-size: 14px; font-weight: 600; flex: 1; }
+  .cap-count { font-size: 12px; color: var(--muted); }
+
+  /* ---------- Top risks ---------- */
+  .top-risk {
+    background: var(--panel2); border: 1px solid var(--border); border-left: 4px solid var(--muted2);
+    border-radius: var(--radius-sm); padding: 15px 16px; margin-bottom: 10px; cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .top-risk:hover { background: #1d2029; }
+  .top-risk.sev-CRITICAL { border-left-color: var(--critical); }
+  .top-risk.sev-HIGH { border-left-color: var(--high); }
+  .top-risk.sev-MEDIUM { border-left-color: var(--medium); }
+  .top-risk.sev-LOW { border-left-color: var(--low); }
+  .top-risk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .top-risk-title { font-weight: 600; font-size: 14.5px; margin-top: 8px; line-height: 1.4; }
+  .top-risk-loc { color: var(--muted); font-size: 12px; font-family: ui-monospace, "SF Mono", monospace; margin-top: 4px; }
+  .chevron { color: var(--muted2); font-size: 12px; transition: transform .15s ease; }
+  .top-risk.open .chevron { transform: rotate(90deg); }
+
+  .sev-badge { font-size: 10.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .04em; }
+  .sev-badge.CRITICAL { background: color-mix(in srgb, var(--critical) 22%, transparent); color: var(--critical); }
+  .sev-badge.HIGH { background: color-mix(in srgb, var(--high) 22%, transparent); color: var(--high); }
+  .sev-badge.MEDIUM { background: color-mix(in srgb, var(--medium) 22%, transparent); color: var(--medium); }
+  .sev-badge.LOW { background: color-mix(in srgb, var(--low) 22%, transparent); color: var(--low); }
+  .tag { font-size: 10.5px; background: #1c2030; border: 1px solid var(--border); padding: 3px 9px; border-radius: 999px; color: var(--muted); }
+
+  .detail-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .code {
+    background: #0a0b10; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px; font-size: 12.5px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    overflow-x: auto; white-space: pre; color: #cdd2e0; margin: 10px 0; line-height: 1.5;
+  }
+  .why-line { font-size: 13.5px; color: #d3d7e2; margin-top: 8px; line-height: 1.5; }
+  .evidence-list { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; padding-left: 18px; line-height: 1.7; }
+  .fix-cta { font-size: 13.5px; margin-top: 10px; padding: 12px; background: rgba(124,108,246,0.08); border: 1px solid rgba(124,108,246,0.25); border-radius: var(--radius-sm); }
+  .detail-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .detail-actions button { padding: 8px 14px; font-size: 13px; }
+
+  /* ---------- Fix My Score CTA ---------- */
+  .fix-score-card { text-align: center; }
+  .fix-list { text-align: left; margin: 14px 0; }
+  .fix-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid var(--border-soft); font-size: 13.5px; }
+  .fix-item:first-child { border-top: none; }
+  .points { color: var(--low); font-weight: 700; font-size: 13px; }
+  .potential-line { font-size: 15px; margin-top: 4px; }
+  .potential-line .points-big { color: var(--low); font-weight: 800; }
+
+  /* ---------- Capability graph (aha moment) ---------- */
+  .chain { padding: 14px 0; border-top: 1px solid var(--border-soft); }
+  .chain:first-child { border-top: none; }
+  .chain-step { font-size: 13.5px; padding: 3px 0; }
+  .chain-arrow { color: var(--muted2); font-size: 12px; padding-left: 4px; }
+  .chain-step.leaf { color: var(--accent2); font-weight: 700; }
+
+  /* ---------- All findings (collapsible, de-emphasized) ---------- */
+  details.all-findings summary {
+    cursor: pointer; font-weight: 600; padding: 4px 0; font-size: 13.5px; color: var(--muted);
+    list-style: none; user-select: none;
+  }
+  details.all-findings summary::-webkit-details-marker { display: none; }
+  details.all-findings summary:before { content: "â–¸ "; display: inline-block; transition: transform .15s ease; }
+  details.all-findings[open] summary:before { transform: rotate(90deg); }
+  .finding { border-top: 1px solid var(--border-soft); padding: 14px 0; }
+  .finding:first-child { border-top: none; }
+
+  /* ---------- Banners ---------- */
+  .improve-banner {
+    background: linear-gradient(135deg, rgba(52,211,153,0.12), rgba(124,108,246,0.10));
+    border: 1px solid rgba(52,211,153,0.35); border-radius: var(--radius-sm);
+    padding: 13px 16px; margin-bottom: 16px; font-size: 14px; text-align: center; font-weight: 600;
+  }
+  .status-banner { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border);
+    border-top-color: var(--accent); animation: spin .7s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-state { text-align: center; padding: 20px 10px; color: var(--muted); font-size: 13.5px; }
+  /* ---------- Finding filters ---------- */
+
+  .finding-filter-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 4px 0 14px;
+  }
+
+  .finding-filter-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--panel2);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 7px 13px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .finding-filter-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .finding-filter-btn.active {
+    background: rgba(124,108,246,0.16);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+
+  .finding-domain-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(124,108,246,0.12);
+    border: 1px solid rgba(124,108,246,0.25);
+    color: var(--text);
+    margin-left: 4px;
+  }
+
+  .finding-domain-badge.ai {
+    background: rgba(124,108,246,0.14);
+    border-color: rgba(124,108,246,0.30);
+  }
+
+  .finding-domain-badge.security {
+    background: rgba(56,189,248,0.12);
+    border-color: rgba(56,189,248,0.25);
+  }
+
+  .finding-domain-badge.lead {
+    background: rgba(245,158,11,0.10);
+    border-color: rgba(245,158,11,0.25);
+  }
+
+  .finding-summary {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .finding-summary strong {
+    color: var(--text);
+  }
+
+  .empty-state .big { font-size: 32px; margin-bottom: 8px; }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 480px) {
+    .wrap { padding: 20px 12px 80px; }
+    .hero h1 { font-size: 22px; }
+    .score-ring { width: 140px; height: 140px; }
+    .score-num { font-size: 32px; }
+    .card { padding: 16px; border-radius: 14px; }
+    .row { flex-direction: column; }
+    .counts-row { gap: 6px; }
+  }
+
+/* SecureAI startup polish — presentation only; existing app logic and IDs remain intact. */
+:root {
+  --bg: #080d18; --bg-grad: radial-gradient(1000px 520px at 70% -15%, rgba(54,91,180,.22) 0%, transparent 65%), linear-gradient(180deg,#0a1020 0%,#080d18 60%);
+  --panel: #101a2b; --panel2: #142238; --border: #263650; --border-soft: #1b2a40;
+  --text: #f2f6ff; --muted: #a1b0c8; --muted2: #71829e;
+  --accent: #5b8cff; --accent2: #8db2ff; --radius: 18px; --radius-sm: 11px;
+  --shadow: 0 16px 42px rgba(0,0,0,.22);
+}
+body { min-height:100vh; background-attachment:fixed; letter-spacing:.005em; }
+.wrap { max-width:1120px; margin:0 auto; padding:36px 28px 90px; }
+.hero { text-align:left; margin-bottom:30px; padding:4px 2px 24px; border-bottom:1px solid rgba(130,157,197,.17); }
+.brand-row { display:flex; align-items:center; gap:13px; margin-bottom:28px; }
+.brand-mark { width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,#70a0ff,#4264dc);box-shadow:0 8px 24px rgba(68,105,226,.3);font-size:22px;font-weight:850;color:white; }
+.hero .logo { font-size:14px; letter-spacing:.13em; color:#f3f7ff; font-weight:800; margin:0 0 3px; }
+.brand-beta { margin-left:7px; font-size:9px; letter-spacing:.1em; border:1px solid #395078; border-radius:5px; padding:3px 5px; color:#9bbcff; vertical-align:2px; }
+.brand-caption { color:#7186a8; font-size:9px; font-weight:750; letter-spacing:.19em; }
+.hero-status { margin-left:auto; display:flex;align-items:center;gap:9px;border:1px solid #263750;background:rgba(17,30,50,.7);padding:9px 13px;border-radius:999px;color:#aebed5;font-size:12px; }
+.live-dot { width:7px;height:7px;border-radius:50%;background:#4dd6a3;box-shadow:0 0 0 4px rgba(77,214,163,.12); }
+.hero h1 { font-size:clamp(29px,4vw,43px); line-height:1.12; letter-spacing:-.045em; max-width:760px; margin:0 0 12px; font-weight:760; }
+.hero h1 span { color:#83aaff; }
+.hero p { max-width:680px; color:#9cacc4; font-size:15px; line-height:1.7; }
+.card { background:linear-gradient(145deg,rgba(17,28,47,.97),rgba(13,22,38,.98)); border-color:#263750; border-radius:17px; padding:25px; margin-bottom:18px; box-shadow:var(--shadow); }
+.card-title { color:#d8e4f8; font-size:12px; letter-spacing:.12em; font-weight:800; }
+#authCard { max-width:650px; position:relative; overflow:hidden; }
+#authCard:before { content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(#6b9aff,#5366e8); }
+input,select { background:#0a1322; border-color:#2b3b55; padding:13px 14px; border-radius:10px; }
+input:focus,select:focus { border-color:#6f99ff; box-shadow:0 0 0 3px rgba(91,140,255,.13); }
+button { background:linear-gradient(135deg,#6597ff,#4d6fe5); border-radius:10px; box-shadow:0 5px 15px rgba(65,99,206,.14); }
+button.secondary { background:#14233a; border-color:#2b3d59; box-shadow:none; }
+button.ghost { box-shadow:none; }
+button:hover { filter:brightness(1.08); opacity:1; }
+.row { gap:10px; }
+.domain-score-grid { gap:16px; }
+.domain-score-card { text-align:left; min-height:185px; }
+.domain-score-number { letter-spacing:-.04em; }
+.score-card { background:radial-gradient(circle at 50% 0%,rgba(78,111,211,.13),transparent 55%),linear-gradient(145deg,#111d31,#0d1728); }
+.score-ring { filter:drop-shadow(0 0 18px rgba(91,140,255,.12)); }
+.count-pill { background:#17263c; border-color:#2c405e; }
+.finding-filter-btn { border-radius:999px; }
+.status-banner { border-radius:12px; }
+.all-findings, details.advanced { color:var(--muted); }
+.details, summary { cursor:pointer; }
+.error { padding-top:4px; }
+@media (min-width:900px) {
+  #domainScoresCard { margin-top:18px; }
+  #domainScoresCard .domain-score-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #repoCard { max-width:none; }
+}
+@media (max-width:720px) {
+  .wrap { padding:22px 14px 60px; }
+  .hero { margin-bottom:20px; padding-bottom:20px; }
+  .brand-row { margin-bottom:22px; }
+  .hero-status { font-size:0; padding:10px; }
+  .hero-status .live-dot { width:8px;height:8px; }
+  .hero h1 { font-size:30px; }
+  .card { padding:18px; border-radius:14px; }
+  .domain-score-grid { grid-template-columns:1fr; }
+  .row { flex-wrap:wrap; }
+  .row > * { min-width:130px; }
+}
+
+
+
+/* ===== SecureAI Professional SaaS polish ===== */
+:root {
+  --bg: #080d18;
+  --panel: #101827;
+  --panel2: #151f31;
+  --border: #26354b;
+  --border-soft: #1c293b;
+  --text: #edf4ff;
+  --muted: #9aabc2;
+  --muted2: #73859f;
+  --accent: #5b9cff;
+  --accent2: #8bc1ff;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow: 0 16px 44px rgba(0, 0, 0, .22);
+}
+html { min-height: 100%; background: #080d18; }
+body {
+  min-height: 100vh;
+  background: radial-gradient(1000px 560px at 8% -12%, rgba(39, 92, 173, .23), transparent 65%),
+              radial-gradient(760px 460px at 100% 0%, rgba(25, 119, 130, .12), transparent 62%),
+              #080d18;
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: -.01em;
+}
+.wrap { width: min(1280px, calc(100% - 48px)); max-width: none; margin: 0 auto; padding: 38px 0 80px; }
+.hero { text-align: left; margin: 0 0 28px; padding: 0 0 24px; border-bottom: 1px solid rgba(132, 159, 195, .17); }
+.brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: linear-gradient(145deg, #5b9cff, #2860d8); color: #fff; box-shadow: 0 8px 24px rgba(59, 130, 246, .25); font-weight: 850; font-size: 19px; }
+.hero .logo { color: #eaf2ff; font-size: 13px; letter-spacing: .15em; margin: 0 0 3px; }
+.brand-beta { border: 1px solid #385477; background: #14243a; color: #8fc1ff; border-radius: 5px; padding: 2px 5px; font-size: 9px; letter-spacing: .08em; margin-left: 5px; }
+.brand-caption { color: #8498b4; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
+.hero-status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #263b53; background: rgba(16, 31, 49, .8); color: #b9cbe1; border-radius: 999px; font-size: 12px; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #39d98a; box-shadow: 0 0 0 4px rgba(57, 217, 138, .1); }
+.hero h1 { max-width: 850px; font-size: clamp(30px, 4vw, 46px); line-height: 1.12; letter-spacing: -.045em; margin: 0 0 12px; font-weight: 760; }
+.hero h1 span { color: #82b8ff; }
+.hero p { max-width: 760px; color: #9aabc2; font-size: 15px; line-height: 1.75; margin: 0; }
+.card { background: linear-gradient(160deg, rgba(18, 29, 46, .96), rgba(13, 22, 36, .98)); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 18px; box-shadow: var(--shadow); }
+.card-title { color: #b8c8dd; font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; margin-bottom: 17px; }
+#authCard { max-width: 560px; padding: 28px; }
+#authCard::before { content: "WORKSPACE ACCESS"; display: block; margin: -2px 0 18px; color: #78adf6; font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+input, select, textarea { width: 100%; min-height: 46px; padding: 12px 14px; border: 1px solid #2b3b52 !important; border-radius: 11px !important; background: #0b1422 !important; color: #edf4ff !important; outline: none; transition: border-color .18s, box-shadow .18s, background .18s; }
+input::placeholder, textarea::placeholder { color: #71839b; }
+input:focus, select:focus, textarea:focus { border-color: #579cff !important; box-shadow: 0 0 0 3px rgba(87, 156, 255, .14); background: #0d192a !important; }
+button { min-height: 43px; padding: 11px 17px; border: 1px solid #5c9fff; border-radius: 11px; background: linear-gradient(135deg, #438cf4, #2869d6); color: #fff; font-weight: 700; font-size: 13px; letter-spacing: .005em; box-shadow: 0 5px 15px rgba(35, 105, 214, .16); transition: transform .15s, filter .15s, border-color .15s; }
+button:hover { filter: brightness(1.08); transform: translateY(-1px); }
+button:active { transform: translateY(0); }
+button.secondary { background: #142136; border-color: #314763; color: #d8e7fa; box-shadow: none; }
+button.secondary:hover { background: #1a2b43; border-color: #4a6b93; }
+button.block { width: 100%; }
+.row { gap: 10px; }
+.row > * { min-width: 0; }
+.advanced { margin-top: 20px; border-top: 1px solid #26354b; padding-top: 14px; }
+.advanced summary, details summary { color: #9fb4ce; cursor: pointer; font-size: 13px; font-weight: 650; }
+.hint, .score-footnote { color: #8fa2bb; line-height: 1.65; font-size: 12px; }
+.or-sep { color: #7e91aa; font-size: 12px; text-align: center; margin: 20px 0; }
+.domain-score-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0 0 18px; }
+.domain-score-grid .card { margin: 0; min-width: 0; }
+.domain-score-title { color: #afc1d8; font-size: 12px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+.domain-score-description { color: #8397b1; font-size: 12px; line-height: 1.55; margin-top: 8px; }
+.domain-score-number { font-size: clamp(32px, 4vw, 46px); font-weight: 780; letter-spacing: -.05em; margin-top: 18px; color: #edf5ff; }
+.domain-score-label { color: #8ebeff; font-weight: 700; font-size: 12px; margin-top: 2px; }
+#scoreCard { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px 26px; }
+#scoreCard .score-ring { grid-row: span 3; }
+#scoreCard .risk-label { align-self: end; font-size: 18px; font-weight: 750; }
+#scoreCard .counts-row, #scoreCard .main-concern-line, #scoreCard .score-footnote { grid-column: 2; }
+#scoreCard .score-footnote { margin-top: 2px; }
+#findingsCard { padding: 22px; }
+.finding-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.finding-filter-btn { background: #101d30; border-color: #2b405b; color: #a9bdd5; box-shadow: none; }
+.finding-filter-btn.active { color: #fff; background: #1d4f91; border-color: #4c91ed; }
+.finding-summary { color: #a5b7cd; font-size: 13px; line-height: 1.65; }
+.all-findings { margin-top: 18px; padding: 16px; border: 1px solid #26374d; border-radius: 12px; background: rgba(7, 15, 27, .42); }
+.error { color: #ff9d9d; font-size: 13px; line-height: 1.5; }
+.status-banner { border-radius: 12px; border: 1px solid #2d4663; background: #10233a; color: #c8dcf5; padding: 13px 15px; line-height: 1.55; }
+.improve-banner { border: 1px solid #2e684f; background: rgba(17, 69, 48, .25); color: #b9f4d4; padding: 16px 18px; border-radius: 14px; margin-bottom: 18px; }
+.top-risk, .finding, .detail-box { border-color: #2a3b51 !important; }
+*:focus-visible { outline: 2px solid #73adff; outline-offset: 3px; }
+@media (max-width: 850px) {
+  .wrap { width: min(100% - 32px, 700px); padding-top: 24px; }
+  .domain-score-grid { grid-template-columns: 1fr; }
+  .hero h1 { font-size: clamp(29px, 7vw, 38px); }
+}
+@media (max-width: 560px) {
+  .wrap { width: calc(100% - 24px); padding-top: 18px; }
+  .hero { margin-bottom: 20px; padding-bottom: 20px; }
+  .brand-row { gap: 10px; margin-bottom: 22px; }
+  .hero-status { font-size: 0; padding: 10px; }
+  .hero-status .live-dot { width: 8px; height: 8px; }
+  .card, #authCard { padding: 18px; border-radius: 15px; }
+  #scoreCard { grid-template-columns: 1fr; justify-items: start; }
+  #scoreCard .score-ring { grid-row: auto; }
+  #scoreCard .counts-row, #scoreCard .main-concern-line, #scoreCard .score-footnote { grid-column: 1; }
+  .row { flex-wrap: wrap; }
+  .row > * { flex: 1 1 100%; }
+  button { min-height: 45px; }
+}
+
+
+
+  /* SecureAI product-grade interaction layer */
+  :root {
+    --bg: #080d18; --panel: rgba(17, 27, 45, .88); --panel2: #142139;
+    --border: rgba(148, 171, 207, .18); --border-soft: rgba(148, 171, 207, .11);
+    --text: #f3f7ff; --muted: #a0aec4; --muted2: #71819c;
+    --accent: #6ea8ff; --accent2: #a5c8ff;
+    --radius: 20px; --radius-sm: 13px;
+    --shadow: 0 18px 55px rgba(0, 0, 0, .24);
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    min-height: 100vh;
+    background: radial-gradient(900px 520px at 8% -8%, rgba(44, 104, 201, .25), transparent 65%),
+                radial-gradient(760px 480px at 100% 8%, rgba(88, 74, 190, .16), transparent 62%),
+                #080d18;
+    background-attachment: fixed;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: -.012em;
+  }
+  .wrap { max-width: 1120px; padding: 42px 28px 100px; animation: pageIn .65s cubic-bezier(.2,.75,.25,1) both; }
+  .hero { text-align: left; margin: 0 auto 30px; padding: 6px 2px 20px; }
+  .brand-row { display:flex; align-items:center; gap:13px; margin-bottom:35px; }
+  .brand-mark { width:44px; height:44px; display:grid; place-items:center; border-radius:14px; color:white; font-weight:850; font-size:20px; background:linear-gradient(145deg,#5da5ff,#6963e9); box-shadow:0 8px 28px rgba(78,126,240,.34); }
+  .logo { color:#f6f9ff; font-size:14px; letter-spacing:.14em; font-weight:850; }
+  .brand-beta { font-size:9px; letter-spacing:.08em; padding:4px 7px; margin-left:5px; vertical-align:2px; border:1px solid rgba(126,174,255,.35); border-radius:6px; color:#a8cbff; }
+  .brand-caption { font-size:10px; letter-spacing:.16em; margin-top:5px; color:#7e90ad; font-weight:700; }
+  .hero-status { margin-left:auto; color:#b9c8df; font-size:12px; padding:9px 13px; border-radius:999px; border:1px solid var(--border); background:rgba(15,26,44,.62); }
+  .live-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#47dfac; margin-right:7px; box-shadow:0 0 0 4px rgba(71,223,172,.11); animation: pulseDot 2.4s infinite; }
+  .hero h1 { max-width:850px; font-size:clamp(34px,5vw,58px); line-height:1.06; letter-spacing:-.055em; margin:0 0 16px; font-weight:780; }
+  .hero h1 span { background:linear-gradient(95deg,#86bcff 5%,#a4a5ff 55%,#c0b4ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .hero p { max-width:700px; font-size:16px; line-height:1.75; color:#a7b6cd; }
+  .card { position:relative; overflow:hidden; background:linear-gradient(145deg,rgba(20,32,53,.93),rgba(13,22,38,.93)); border:1px solid var(--border); border-radius:var(--radius); padding:25px; margin-bottom:18px; box-shadow:var(--shadow); backdrop-filter:blur(16px); transition:transform .24s ease,border-color .24s ease,box-shadow .24s ease; animation: cardIn .55s cubic-bezier(.2,.75,.25,1) both; }
+  .card::before { content:""; position:absolute; inset:0 0 auto; height:1px; background:linear-gradient(90deg,transparent,rgba(146,190,255,.35),transparent); pointer-events:none; }
+  .card:hover { border-color:rgba(125,174,255,.32); box-shadow:0 22px 58px rgba(0,0,0,.3); }
+  .card-title { font-size:12px; letter-spacing:.12em; color:#9eb0ca; font-weight:800; margin-bottom:17px; }
+  input, select, textarea { color:#f4f7ff !important; background:rgba(7,14,26,.72) !important; border:1px solid rgba(145,169,205,.22) !important; border-radius:12px !important; min-height:46px; padding:12px 14px !important; outline:none; transition:border-color .2s,box-shadow .2s,background .2s; }
+  input::placeholder, textarea::placeholder { color:#70819b !important; }
+  input:focus, select:focus, textarea:focus { border-color:#6ea8ff !important; box-shadow:0 0 0 4px rgba(92,151,255,.13); background:rgba(10,21,39,.96) !important; }
+  button { min-height:44px; padding:11px 17px !important; border:1px solid transparent !important; border-radius:12px !important; font-size:13px !important; font-weight:750 !important; letter-spacing:.005em; color:white !important; background:linear-gradient(135deg,#4c91f4,#6966e9) !important; box-shadow:0 7px 20px rgba(68,111,224,.22); cursor:pointer; transition:transform .18s ease,filter .18s ease,box-shadow .18s ease !important; }
+  button:hover { transform:translateY(-2px); filter:brightness(1.08); box-shadow:0 11px 26px rgba(68,111,224,.3); }
+  button:active { transform:translateY(0) scale(.985); }
+  button.secondary { color:#d9e6fb !important; background:rgba(31,47,73,.7) !important; border-color:rgba(143,170,212,.2) !important; box-shadow:none; }
+  button.secondary:hover { background:rgba(43,64,98,.85) !important; border-color:rgba(125,174,255,.38) !important; }
+  button.block { width:100%; }
+  .row { gap:11px; }
+  #authCard { max-width:560px; margin:28px 0 22px; }
+  #authCard input { width:100%; display:block; margin:0 0 12px; }
+  #authCard .row button { flex:1; }
+  .advanced { margin-top:18px; padding-top:13px; border-top:1px solid var(--border-soft); color:var(--muted); font-size:12px; }
+  .advanced summary { cursor:pointer; transition:color .2s; }
+  .advanced summary:hover { color:var(--accent2); }
+  .advanced input { margin-top:12px; width:100%; }
+  .or-sep { color:#8495af; font-size:12px; display:flex; align-items:center; gap:12px; margin:22px 0 15px; }
+  .or-sep::before,.or-sep::after { content:""; height:1px; flex:1; background:var(--border); }
+  .hint,.muted,.domain-score-description { color:var(--muted) !important; line-height:1.65; }
+  .domain-score-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+  .domain-score-grid .card { margin:0; }
+  .domain-score-number { font-size:clamp(32px,4vw,48px); letter-spacing:-.06em; font-weight:800; margin:15px 0 5px; }
+  .status-banner,.improve-banner { border-radius:14px; padding:14px 16px; border:1px solid var(--border); background:rgba(20,34,56,.8); color:#d8e5fa; }
+  a { color:#8dbaff; text-underline-offset:3px; }
+  table { border-collapse:separate; border-spacing:0; width:100%; overflow:hidden; border:1px solid var(--border); border-radius:14px; }
+  th { color:#9eb0ca; background:rgba(26,41,65,.8); font-size:11px; text-transform:uppercase; letter-spacing:.09em; }
+  td,th { padding:12px 14px; border-bottom:1px solid var(--border-soft); text-align:left; }
+  tr:last-child td { border-bottom:0; }
+  tr:hover td { background:rgba(104,157,245,.045); }
+  ::selection { background:rgba(94,151,255,.35); color:white; }
+  @keyframes pageIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes cardIn { from { opacity:0; transform:translateY(13px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes pulseDot { 0%,100% { box-shadow:0 0 0 4px rgba(71,223,172,.1); } 50% { box-shadow:0 0 0 7px rgba(71,223,172,.025); } }
+  @media (min-width:900px) { #repoCard { max-width:760px; } #regressionCard,#improveBanner { max-width:100%; } }
+  @media (max-width:680px) { .wrap { padding:22px 14px 70px; } .brand-row { margin-bottom:26px; } .hero-status { font-size:0; padding:10px; } .hero-status .live-dot { margin:0; } .hero h1 { font-size:36px; } .hero p { font-size:14px; } .card { padding:19px; border-radius:16px; } .domain-score-grid { grid-template-columns:1fr; } .row { flex-wrap:wrap; } .row button { flex:1; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.01ms !important; } }
+
+
+/* SecureAI landing-page refinement: balanced split layout and visual hierarchy */
+.wrap { width:min(1240px, calc(100% - 64px)); display:grid; grid-template-columns:minmax(0,1.08fr) minmax(360px,.82fr); column-gap:clamp(38px,6vw,88px); align-content:start; align-items:start; padding-top:32px; }
+.hero { grid-column:1; grid-row:1; border:0; padding:0; margin:0 0 20px; align-self:end; }
+.brand-row { margin-bottom:clamp(36px,5vh,58px); }
+.hero h1 { max-width:680px; font-size:clamp(42px,4.2vw,62px); line-height:1.045; letter-spacing:-.055em; }
+.hero p { max-width:520px; font-size:16px; line-height:1.8; }
+#authCard { grid-column:2; grid-row:1 / span 2; width:100%; max-width:none; margin:12px 0 0; padding:32px; border-radius:24px; background:linear-gradient(155deg,rgba(19,31,51,.97),rgba(10,18,32,.98)); box-shadow:0 24px 70px rgba(0,0,0,.26), inset 0 1px rgba(255,255,255,.035); }
+#authCard::before { margin-bottom:22px; }
+#authCard .card-title { font-size:19px; letter-spacing:-.025em; text-transform:none; color:#f1f6ff; margin-bottom:8px; }
+#authCard .card-title::after { content:"Create your secure workspace or sign in to continue."; display:block; font-size:12px; line-height:1.6; font-weight:450; letter-spacing:0; color:#8fa3bf; margin-top:8px; }
+#authCard input { margin-top:12px; min-height:50px; }
+#authCard .row { margin-top:14px; }
+#authCard .row button { flex:1; min-height:48px; }
+#authCard .advanced { margin-top:18px; }
+.trust-panel { grid-column:1; grid-row:2; position:relative; overflow:hidden; margin-top:8px; padding:24px 26px 20px; border:1px solid rgba(75,111,158,.28); border-radius:22px; background:radial-gradient(ellipse at 50% 10%,rgba(56,103,184,.17),transparent 55%),linear-gradient(145deg,rgba(16,29,49,.78),rgba(9,17,30,.45)); animation:pageIn .65s ease both; }
+.trust-panel-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.eyebrow { font-size:10px; letter-spacing:.16em; font-weight:850; color:#8fbaff; }
+.orbit-status { display:flex; align-items:center; gap:7px; color:#9eafc7; font-size:10px; white-space:nowrap; }
+.orbit-status i { width:6px; height:6px; border-radius:50%; background:#4de0ae; box-shadow:0 0 12px #4de0ae; }
+.security-visual { height:174px; position:relative; display:grid; place-items:center; margin:4px 0 0; }
+.orbit { position:absolute; border:1px solid rgba(103,159,240,.19); border-radius:50%; transform:rotate(-22deg); }
+.orbit-one { width:154px; height:82px; }
+.orbit-two { width:224px; height:112px; }
+.orbit-three { width:290px; height:140px; }
+.core-shield { width:76px; height:84px; display:grid; place-items:center; color:#b4d2ff; border:1px solid rgba(117,170,255,.4); border-radius:22px; background:linear-gradient(145deg,rgba(69,126,224,.25),rgba(32,62,117,.35)); box-shadow:0 0 42px rgba(68,133,245,.18),inset 0 1px rgba(255,255,255,.1); z-index:1; }
+.core-shield svg { width:39px; height:44px; }
+.orbit-node { position:absolute; z-index:2; display:grid; place-items:center; width:29px; height:29px; border:1px solid #334d70; border-radius:10px; background:#12223a; color:#b8d5ff; font-size:11px; font-weight:800; box-shadow:0 6px 18px #050a13; }
+.node-a { top:27px; left:calc(50% - 104px); }.node-b { right:calc(50% - 116px); top:58px; color:#70e3b7; }.node-c { left:calc(50% - 89px); bottom:10px; color:#c5b8ff; }
+.trust-panel-copy h2 { margin:0; color:#edf4ff; font-size:clamp(22px,2.3vw,29px); letter-spacing:-.04em; line-height:1.2; }
+.trust-panel-copy h2 span { color:#88b7ff; }
+.trust-panel-copy p { max-width:460px; margin:10px 0 17px; color:#8fa3bd; font-size:12px; line-height:1.7; }
+.feature-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid rgba(112,143,183,.13); }
+.feature-icon { width:34px; height:34px; display:grid; place-items:center; flex:0 0 34px; border-radius:11px; color:#9cc4ff; background:rgba(66,120,203,.13); border:1px solid rgba(99,150,228,.17); font-size:17px; }
+.feature-row strong,.feature-row small { display:block; }.feature-row strong { color:#dce8f8; font-size:12px; font-weight:700; }.feature-row small { color:#7f94b1; font-size:10px; margin-top:4px; }.feature-arrow { margin-left:auto; color:#6d8fb9; }
+.trust-footer { margin-top:8px; color:#8197b4; font-size:10px; display:flex; align-items:center; gap:8px; }.footer-check { display:grid; place-items:center; width:17px; height:17px; border-radius:50%; color:#73e0b4; background:rgba(49,171,127,.12); }
+#repoCard,#scoreCard,#findingsCard,#regressionCard,#improveBanner { grid-column:1 / -1; }
+@media(max-width:900px) { .wrap { width:min(100% - 36px,650px); display:flex; flex-direction:column; gap:22px; padding-top:24px; } .hero { width:100%; margin:0; } .brand-row { margin-bottom:32px; } .hero h1 { font-size:clamp(38px,8vw,54px); } #authCard { order:2; margin:0; padding:25px; } .trust-panel { order:3; width:100%; margin:0; } #repoCard,#scoreCard,#findingsCard,#regressionCard,#improveBanner { width:100%; } }
+@media(max-width:520px) { .wrap { width:calc(100% - 28px); } .hero h1 { font-size:39px; } .hero p { font-size:14px; } .hero-status { font-size:0; padding:9px; } .trust-panel { padding:20px 17px; } .security-visual { transform:scale(.9); margin-left:-10px; margin-right:-10px; } #authCard { padding:22px 18px; } }
+@media(prefers-reduced-motion:reduce) { .trust-panel { animation:none; } }
+
+
+/* Final polish: prevent the workspace label from inheriting the card's top-edge rule. */
+#authCard::before {
+  position: relative !important;
+  inset: auto !important;
+  display: inline-flex !important;
+  align-items: center;
+  width: auto !important;
+  max-width: 100%;
+  height: auto !important;
+  margin: 0 0 20px !important;
+  padding: 7px 10px;
+  white-space: nowrap;
+  overflow: visible;
+  border: 1px solid rgba(111, 164, 255, .22);
+  border-radius: 999px;
+  background: rgba(80, 133, 219, .09);
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+.wrap {
+  width: min(1360px, calc(100% - 72px));
+  grid-template-columns: minmax(0, 1.12fr) minmax(390px, .88fr);
+  column-gap: clamp(42px, 5vw, 82px);
+}
+#authCard { align-self: start; margin-top: 14px; }
+.trust-panel { align-self: start; }
+@media (min-width: 1500px) {
+  .wrap { padding-top: 42px; }
+  .hero h1 { font-size: clamp(52px, 4.1vw, 66px); }
+}
+@media (max-width: 900px) {
+  .wrap { width: min(100% - 36px, 650px); }
+  #authCard::before { margin-bottom: 18px !important; }
+}
+@media (max-width: 520px) {
+  .wrap { width: calc(100% - 28px); }
+  #authCard::before { font-size: 9px; letter-spacing: .12em; padding: 6px 8px; }
+}
+
+
+/* ===== SecureAI premium refinement v3: visual polish + motion ===== */
+:root {
+  --sa-ink: #070c16;
+  --sa-panel: rgba(15, 27, 46, .94);
+  --sa-line: rgba(137, 169, 216, .19);
+  --sa-blue: #6aa8ff;
+  --sa-violet: #9a91ff;
+}
+html { scroll-behavior: smooth; }
+body {
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at 12% 16%, rgba(49, 105, 198, .20), transparent 38%),
+    radial-gradient(ellipse at 88% 10%, rgba(103, 77, 199, .14), transparent 34%),
+    linear-gradient(150deg, #080e1a 0%, #070b14 58%, #0a1020 100%);
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: -1;
+  opacity: .16;
+  background-image: linear-gradient(rgba(139,170,220,.07) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(139,170,220,.07) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+.wrap { animation: saPageIn .7s cubic-bezier(.2,.7,.2,1) both; }
+.hero { position: relative; }
+.brand-mark {
+  position: relative; isolation: isolate;
+  background: linear-gradient(145deg, #79b5ff 0%, #4e7cf1 52%, #7565e9 100%);
+  box-shadow: 0 9px 30px rgba(71, 119, 235, .32), inset 0 1px rgba(255,255,255,.32);
+  transition: transform .3s ease, box-shadow .3s ease;
+}
+.brand-mark:hover { transform: translateY(-2px) rotate(-3deg); box-shadow: 0 14px 34px rgba(71,119,235,.4); }
+.hero h1 { text-wrap: balance; }
+.hero p { max-width: 510px; }
+.hero-status { backdrop-filter: blur(12px); }
+#authCard {
+  isolation: isolate;
+  border-color: rgba(135, 169, 220, .23);
+  background: linear-gradient(145deg, rgba(18,31,52,.97), rgba(10,18,32,.98));
+  box-shadow: 0 26px 75px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.045);
+  transition: border-color .25s ease, box-shadow .25s ease, transform .25s ease;
+}
+#authCard:hover { border-color: rgba(111,164,255,.38); box-shadow: 0 30px 82px rgba(0,0,0,.36), 0 0 35px rgba(70,119,217,.07); }
+#authCard .card-title { font-size: 21px; }
+#authCard .card-title::after { font-size: 13px; max-width: 310px; }
+#authCard input { margin-bottom: 13px; }
+#authCard input:hover { border-color: rgba(116,161,231,.42) !important; }
+#authCard .row button { min-height: 49px; }
+button { position: relative; overflow: hidden; }
+button::after {
+  content: ""; position: absolute; inset: 0 auto 0 -120%; width: 65%;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.16), transparent);
+  transition: left .55s ease; pointer-events: none;
+}
+button:hover::after { left: 150%; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid #8bbaff; outline-offset: 3px;
+}
+.trust-panel {
+  border-color: rgba(105,151,220,.25);
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(63,117,207,.18), transparent 57%),
+    linear-gradient(145deg, rgba(17,31,52,.88), rgba(8,16,29,.82));
+  box-shadow: inset 0 1px rgba(255,255,255,.035), 0 18px 50px rgba(0,0,0,.12);
+}
+.orbit { animation: saOrbitFloat 7s ease-in-out infinite; transform-origin: center; }
+.orbit-two { animation-delay: -.9s; }
+.orbit-three { animation-delay: -1.8s; }
+.core-shield { animation: saShieldGlow 4s ease-in-out infinite; }
+.orbit-node { animation: saNodeFloat 4.5s ease-in-out infinite; }
+.node-b { animation-delay: -.8s; }
+.node-c { animation-delay: -1.6s; }
+.feature-row { transition: padding .2s ease, background .2s ease; border-radius: 10px; }
+.feature-row:hover { padding-left: 8px; padding-right: 8px; background: rgba(91,143,225,.055); }
+.feature-icon { transition: transform .2s ease, background .2s ease; }
+.feature-row:hover .feature-icon { transform: translateY(-2px); background: rgba(66,120,203,.23); }
+.card, .top-risk, .domain-score-card { transition: border-color .22s ease, box-shadow .22s ease, transform .22s ease; }
+.top-risk:hover { transform: translateY(-1px); }
+input, select, textarea { transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
+.error:empty { display: none; }
+.error:not(:empty) { margin-top: 10px; padding: 11px 12px; border: 1px solid rgba(255,112,112,.2); border-radius: 10px; background: rgba(150,35,48,.1); }
+@keyframes saPageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes saOrbitFloat { 0%,100% { transform: rotate(-22deg) translateY(0); } 50% { transform: rotate(-18deg) translateY(-5px); } }
+@keyframes saShieldGlow { 0%,100% { box-shadow: 0 0 32px rgba(68,133,245,.14), inset 0 1px rgba(255,255,255,.1); } 50% { box-shadow: 0 0 48px rgba(68,133,245,.27), inset 0 1px rgba(255,255,255,.16); } }
+@keyframes saNodeFloat { 0%,100% { translate: 0 0; } 50% { translate: 0 -5px; } }
+@media (min-width: 901px) {
+  .wrap { min-height: 100vh; align-content: start; }
+  .hero { padding-top: 10px; }
+  .trust-panel { margin-top: 5px; }
+}
+@media (max-width: 900px) {
+  body::before { background-size: 38px 38px; }
+  .hero h1 { text-wrap: pretty; }
+}
+@media (max-width: 520px) {
+  .brand-row { align-items: center; }
+  .brand-caption { letter-spacing: .12em; }
+  .trust-panel-copy h2 { font-size: 24px; }
+  .security-visual { transform: scale(.84); margin-top: -3px; margin-bottom: -5px; }
+  #authCard .row { gap: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+
+/* Accessible field labels for the workspace form */
+.sa-field-label {
+  display: block; margin: 12px 0 7px; color: #a9bbd4;
+  font-size: 11px; font-weight: 750; letter-spacing: .045em;
+}
+#authCard input { margin-top: 0; }
+
+
+/* ===== SecureAI startup landing experience v4 ===== */
+:root {
+  --sa-accent: #79b2ff;
+  --sa-violet: #a49aff;
+  --sa-text: #eef4ff;
+  --sa-muted: #9eafc8;
+}
+body {
+  background:
+    radial-gradient(ellipse at 8% 14%, rgba(42, 94, 185, .23), transparent 36%),
+    radial-gradient(ellipse at 91% 8%, rgba(104, 75, 202, .17), transparent 32%),
+    #070c16;
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1;
+  background: linear-gradient(115deg, transparent 20%, rgba(91,139,224,.035) 50%, transparent 78%);
+}
+.wrap {
+  width: min(1240px, calc(100% - 64px));
+  grid-template-columns: minmax(0, 1.13fr) minmax(390px, .87fr);
+  column-gap: clamp(48px, 7vw, 112px);
+  row-gap: 32px;
+  padding-top: clamp(30px, 5vh, 58px);
+  padding-bottom: 44px;
+}
+.hero { align-self: start; }
+.brand-row { margin-bottom: clamp(36px, 6vh, 66px); }
+.hero h1 {
+  max-width: 690px; font-size: clamp(42px, 5.1vw, 70px);
+  line-height: .99; letter-spacing: -.065em; font-weight: 820;
+  margin-bottom: 24px;
+}
+.hero h1 span {
+  background: linear-gradient(100deg, #82bdff 4%, #8d9dff 54%, #b1a0ff 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero > p { max-width: 560px; font-size: clamp(15px, 1.25vw, 18px); line-height: 1.8; color: #a7b7ce; }
+.trust-panel {
+  margin-top: 28px; padding: 24px 26px 20px;
+  border-radius: 24px; min-height: 0;
+  background:
+    radial-gradient(ellipse at 50% 16%, rgba(63,117,207,.19), transparent 57%),
+    linear-gradient(145deg, rgba(17,31,52,.94), rgba(8,16,29,.91));
+}
+.trust-panel-copy h2 { font-size: clamp(25px, 2.5vw, 34px); line-height: 1.12; letter-spacing: -.045em; }
+.trust-panel-copy p { max-width: 510px; line-height: 1.65; }
+.feature-row { padding: 10px 4px; }
+.feature-row small { line-height: 1.5; }
+#authCard {
+  align-self: start; width: 100%; max-width: 480px; justify-self: end;
+  margin-top: clamp(12px, 3.8vh, 46px); padding: clamp(27px, 3vw, 38px);
+  border-radius: 25px; overflow: visible;
+}
+#authCard::before {
+  content: "WORKSPACE ACCESS"; display: inline-flex; align-items: center;
+  width: max-content; max-width: 100%; margin: 0 0 22px; padding: 8px 12px;
+  border: 1px solid rgba(89,148,242,.27); border-radius: 999px;
+  background: rgba(52,99,171,.14); color: #84b6ff;
+  font-size: 10px; font-weight: 850; letter-spacing: .13em;
+}
+#authCard .card-title { font-size: 25px; letter-spacing: -.045em; margin-bottom: 6px; }
+#authCard .card-title::after { font-size: 13px; line-height: 1.7; margin-top: 8px; }
+#authCard .sa-field-label { margin-top: 16px; color: #b5c4da; font-size: 11px; }
+#authCard input { min-height: 53px; margin: 0; border-radius: 12px; font-size: 14px; }
+#authCard .row { margin-top: 19px; gap: 11px; }
+#authCard .row button { min-height: 52px; border-radius: 12px; font-size: 13px; }
+#authCard .advanced { margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(137,169,216,.13); }
+#authCard .advanced summary { color: #71839e; font-size: 11px; font-weight: 650; cursor: pointer; list-style: none; }
+#authCard .advanced summary::-webkit-details-marker { display:none; }
+#authCard .advanced summary::before { content: "＋"; display: inline-block; margin-right: 7px; color: #718ab0; }
+#authCard .advanced[open] summary::before { content: "−"; }
+#authCard .advanced input { margin-top: 12px; width: 100%; }
+#authCard .advanced:not([open]) { opacity: .78; }
+.startup-benefits {
+  grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 14px; margin-top: 4px;
+}
+.startup-benefit {
+  display: flex; gap: 12px; align-items: flex-start; padding: 16px 17px;
+  border: 1px solid rgba(126,159,211,.14); border-radius: 16px;
+  background: rgba(13,23,40,.54); transition: transform .22s ease, border-color .22s ease, background .22s ease;
+}
+.startup-benefit:hover { transform: translateY(-3px); border-color: rgba(114,165,247,.34); background: rgba(18,32,54,.72); }
+.startup-benefit .benefit-icon {
+  display: grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 10px;
+  color: #9bc6ff; background: rgba(68,120,205,.15); border: 1px solid rgba(107,157,234,.18);
+  font-size: 16px;
+}
+.startup-benefit strong { display: block; margin: 1px 0 5px; color: #e5efff; font-size: 12px; }
+.startup-benefit span { display: block; color: #8fa2bd; font-size: 11px; line-height: 1.55; }
+@media (min-width: 901px) {
+  .wrap { align-content: start; }
+  .startup-benefits { margin-top: 4px; }
+}
+@media (max-width: 900px) {
+  .wrap { width: min(680px, calc(100% - 36px)); grid-template-columns: 1fr; gap: 26px; padding-top: 28px; }
+  .brand-row { margin-bottom: 34px; }
+  .hero h1 { font-size: clamp(42px, 8vw, 62px); }
+  #authCard { justify-self: stretch; max-width: none; margin-top: 0; }
+  .trust-panel { margin-top: 25px; }
+  .startup-benefits { grid-column: 1; grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .wrap { width: calc(100% - 28px); padding-top: 22px; }
+  .brand-row { margin-bottom: 30px; }
+  .hero h1 { font-size: clamp(38px, 11vw, 49px); }
+  .hero > p { font-size: 14px; }
+  #authCard { padding: 24px 19px; }
+  #authCard .row { flex-direction: column; }
+  .trust-panel { padding: 20px 18px; }
+  .trust-panel-copy h2 { font-size: 25px; }
+}
+
+
+/* ===== SecureAI product-led startup experience v5 ===== */
+:root {
+  --sa-bg: #070c16;
+  --sa-panel: #101b2d;
+  --sa-line: rgba(139, 169, 214, .18);
+  --sa-blue: #72adff;
+  --sa-lilac: #a89bff;
+}
+html { scroll-behavior: smooth; }
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 9% 12%, rgba(39, 91, 179, .18), transparent 34%),
+    radial-gradient(ellipse at 89% 10%, rgba(98, 75, 190, .13), transparent 31%),
+    #070c16;
+}
+body::before {
+  opacity: .11;
+  background-size: 62px 62px;
+  mask-image: linear-gradient(to bottom, #000, transparent 74%);
+}
+.wrap {
+  width: min(1320px, calc(100% - 72px));
+  grid-template-columns: minmax(0, 1.08fr) minmax(400px, .78fr);
+  column-gap: clamp(48px, 6vw, 92px);
+  row-gap: 25px;
+  padding: clamp(28px, 4.5vh, 48px) 0 42px;
+  align-content: start;
+}
+.brand-row { margin-bottom: clamp(28px, 4.5vh, 48px); }
+.hero h1 {
+  max-width: 660px;
+  font-size: clamp(42px, 4.2vw, 60px);
+  line-height: 1.025;
+  letter-spacing: -.062em;
+  margin: 0 0 20px;
+  font-weight: 800;
+}
+.hero > p {
+  max-width: 555px;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #a9b8ce;
+  margin-bottom: 0;
+}
+.hero-status { border-color: rgba(130,163,214,.17); background: rgba(13,24,41,.76); }
+.trust-panel {
+  margin-top: 27px;
+  padding: 22px 24px 18px;
+  border-radius: 22px;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse at 50% 15%, rgba(54,104,190,.16), transparent 60%),
+    linear-gradient(145deg, rgba(16,29,49,.92), rgba(9,17,30,.93));
+}
+.security-visual { height: 132px; margin: 0; }
+.orbit-one { width: 250px; height: 100px; }
+.orbit-two { width: 205px; height: 82px; }
+.orbit-three { width: 158px; height: 64px; }
+.core-shield { width: 74px; height: 74px; }
+.core-shield svg { width: 40px; height: 45px; }
+.trust-panel-copy h2 { font-size: clamp(23px, 2.1vw, 29px); line-height: 1.15; margin: 4px 0 8px; }
+.trust-panel-copy p { font-size: 12px; line-height: 1.65; margin-bottom: 12px; }
+.feature-row { padding: 8px 4px; }
+.feature-row strong { font-size: 12px; }
+.feature-row small { font-size: 11px; }
+#authCard {
+  width: 100%;
+  max-width: 460px;
+  justify-self: end;
+  align-self: start;
+  margin-top: clamp(10px, 2.5vh, 28px);
+  padding: clamp(25px, 2.5vw, 34px);
+  border: 1px solid rgba(135,169,220,.22);
+  border-radius: 23px;
+  background: linear-gradient(145deg, rgba(17,29,48,.97), rgba(9,17,30,.98));
+  box-shadow: 0 24px 65px rgba(0,0,0,.26), inset 0 1px rgba(255,255,255,.035);
+}
+#authCard::before { margin-bottom: 18px; }
+#authCard .card-title { font-size: 24px; letter-spacing: -.04em; margin-bottom: 7px; }
+#authCard .card-title::after { font-size: 12px; line-height: 1.7; margin-top: 7px; }
+#authCard .sa-field-label { margin: 15px 0 7px; font-size: 11px; }
+#authCard input:not([type="hidden"]) { width: 100%; min-height: 51px; margin: 0; border-radius: 11px; font-size: 13px; }
+#authCard .row { margin-top: 18px; gap: 10px; }
+#authCard .row button { min-height: 50px; border-radius: 11px; font-size: 12px; }
+#authCard .advanced { display: none !important; }
+#authCard .error:not(:empty) { margin-top: 12px; }
+.startup-benefits {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 12px;
+  margin-top: 0;
+}
+.startup-benefit {
+  padding: 14px 15px;
+  border-radius: 14px;
+  background: rgba(13,23,40,.48);
+  border-color: rgba(126,159,211,.13);
+}
+.startup-benefit .benefit-icon { flex-basis: 31px; height: 31px; border-radius: 9px; }
+.startup-benefit strong { font-size: 11px; }
+.startup-benefit span { font-size: 10px; line-height: 1.55; }
+button { transition: transform .2s ease, filter .2s ease, box-shadow .2s ease; }
+button:hover { transform: translateY(-1px); }
+input:focus-visible, button:focus-visible { outline: 2px solid #8bbaff; outline-offset: 3px; }
+@media (min-width: 1200px) and (min-height: 780px) {
+  .wrap { padding-top: 38px; }
+}
+@media (max-width: 1000px) {
+  .wrap { width: min(720px, calc(100% - 40px)); grid-template-columns: 1fr; gap: 25px; }
+  .brand-row { margin-bottom: 28px; }
+  .hero h1 { max-width: 680px; font-size: clamp(42px, 7vw, 58px); }
+  #authCard { max-width: none; margin-top: 0; justify-self: stretch; }
+  .startup-benefits { grid-column: 1; }
+}
+@media (max-width: 620px) {
+  .wrap { width: calc(100% - 28px); padding-top: 20px; gap: 21px; }
+  .hero h1 { font-size: clamp(37px, 10.5vw, 48px); }
+  .hero > p { font-size: 14px; line-height: 1.7; }
+  .trust-panel { padding: 18px 17px 16px; margin-top: 21px; }
+  .security-visual { height: 112px; }
+  #authCard { padding: 23px 18px; }
+  #authCard .row { flex-direction: column; }
+  .startup-benefits { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+
+/* ===== SecureAI editorial startup website: reference-inspired, original implementation ===== */
+:root { --sa-cream:#f5f3ee; --sa-paper:#fcfbf8; --sa-dark:#11151c; --sa-muted-dark:#69717e; --sa-purple:#a99aff; --sa-blue:#8ebcff; }
+body { background:#f5f3ee; color:#151922; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+.site-nav { width:min(1240px,calc(100% - 64px)); margin:0 auto; height:88px; display:flex; align-items:center; justify-content:space-between; gap:28px; border-bottom:1px solid rgba(24,31,44,.10); position:relative; z-index:10; }
+.site-brand { display:flex; align-items:center; gap:11px; text-decoration:none; color:#141821; flex-shrink:0; }
+.site-brand-mark { width:37px; height:37px; border-radius:12px; display:grid; place-items:center; background:#151923; color:#fff; font-size:18px; font-weight:850; }
+.site-brand-name { font-size:18px; letter-spacing:-.06em; font-weight:850; line-height:1; }
+.site-brand-dot { color:#7761dd; }
+.site-brand-name small { display:block; margin-top:5px; color:#818590; font-size:8px; letter-spacing:.16em; font-weight:750; }
+.site-links { display:flex; gap:31px; align-items:center; margin-left:auto; margin-right:22px; }
+.site-links a,.nav-login { color:#5e6470; text-decoration:none; font-size:12px; font-weight:650; transition:color .2s; }
+.site-links a:hover,.nav-login:hover { color:#151923; }
+.site-nav-actions { display:flex; align-items:center; gap:18px; }
+.nav-login { border:0; background:transparent; padding:10px 0; }
+.nav-cta,.hero-primary { border:0; background:#161a24; color:white; border-radius:999px; padding:13px 18px; font-size:12px; font-weight:750; cursor:pointer; box-shadow:0 5px 12px rgba(20,24,33,.1); transition:transform .2s,background .2s; }
+.nav-cta span,.hero-primary span { margin-left:12px; color:#c7bbff; }
+.nav-cta:hover,.hero-primary:hover { transform:translateY(-2px); background:#303044; }
+.mobile-menu-toggle { display:none; border:1px solid #deddd8; background:transparent; color:#171a22; border-radius:10px; padding:8px 11px; }
+.marketing-site { width:100%; overflow:hidden; }
+.marketing-hero { max-width:1240px; margin:0 auto; min-height:580px; padding:75px 0 66px; display:grid; grid-template-columns:.9fr 1.1fr; align-items:center; gap:50px; }
+.hero-copy { position:relative; z-index:2; animation:saRise .7s ease both; }
+.eyebrow-pill { display:inline-flex; align-items:center; gap:9px; padding:9px 12px; border:1px solid #dedbd3; border-radius:999px; color:#696d76; font-size:9px; font-weight:800; letter-spacing:.13em; margin-bottom:27px; background:rgba(255,255,255,.45); }
+.eyebrow-dot { width:7px; height:7px; border-radius:50%; background:#7d6be8; box-shadow:0 0 0 4px rgba(125,107,232,.12); }
+.marketing-hero h1 { font-size:clamp(53px,6vw,82px); line-height:.98; letter-spacing:-.078em; font-weight:780; margin:0 0 24px; color:#171a22; }
+.marketing-hero h1 span,.section-intro h2 span,.why-copy h2 span,.signup-copy h2 span { color:#8170dc; }
+.hero-lede { max-width:465px; color:#696e79; font-size:15px; line-height:1.85; margin:0; }
+.hero-actions { display:flex; align-items:center; gap:22px; margin-top:29px; }
+.hero-primary { padding:15px 19px; }
+.hero-secondary,.text-link { text-decoration:none; color:#3c414b; font-size:12px; font-weight:750; }
+.hero-secondary span { margin-left:7px; color:#8472df; }
+.hero-proof { display:flex; align-items:center; gap:10px; color:#7c818b; font-size:10px; margin-top:29px; }
+.proof-icon { width:19px; height:19px; display:grid; place-items:center; border-radius:50%; background:#e3e0f8; color:#7564d4; font-size:11px; font-weight:900; }
+.hero-product { position:relative; padding:24px 10px 20px 22px; min-width:0; animation:saRise .8s .12s ease both; }
+.product-glow { position:absolute; inset:12% 3% 8% 10%; background:radial-gradient(ellipse,rgba(172,157,255,.42),rgba(183,203,255,.18) 42%,transparent 70%); filter:blur(25px); }
+.product-window { position:relative; border:1px solid #30384a; border-radius:17px; background:#111722; box-shadow:0 32px 75px rgba(28,31,48,.22); overflow:hidden; transform:perspective(1200px) rotateY(-3deg) rotateX(1deg); transition:transform .5s ease; }
+.product-window:hover { transform:perspective(1200px) rotateY(0) rotateX(0) translateY(-3px); }
+.product-window-top { height:42px; display:flex; align-items:center; gap:12px; padding:0 15px; color:#7e8a9d; font-size:8px; letter-spacing:.12em; border-bottom:1px solid #252d3b; background:#151c28; }
+.window-dots { display:flex; gap:4px; }.window-dots i { width:5px;height:5px;border-radius:50%;background:#5a6373; }.window-dots i:first-child{background:#e38c88}.window-dots i:nth-child(2){background:#e6c27b}.window-dots i:nth-child(3){background:#79c9a8}
+.window-status { margin-left:auto; padding:5px 8px; border-radius:999px; background:#1c2d2b; color:#9bd9c6; letter-spacing:0; }.window-status i,.preview-bottom i { display:inline-block;width:5px;height:5px;border-radius:50%;background:#6ed8b2;margin-right:4px; }
+.product-body { display:flex; min-height:342px; }
+.product-sidebar { width:44px; display:flex; flex-direction:column; align-items:center; gap:19px; padding:13px 0; border-right:1px solid #252d3b; color:#738198; font-size:12px; }
+.sidebar-symbol { width:23px;height:23px;display:grid;place-items:center;border-radius:7px;background:#7765dd;color:white;font-weight:850;margin-bottom:7px; }.sidebar-active { color:#b8aaff;background:#282844;padding:7px;border-radius:7px; }.sidebar-bottom{margin-top:auto}
+.product-content { min-width:0; flex:1; padding:21px 20px 15px; }
+.product-greeting { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.product-greeting small { color:#9b8df0; font-size:8px; letter-spacing:.13em; font-weight:800; }
+.product-greeting h3 { color:#f2f4fa; font-size:17px; letter-spacing:-.04em; margin:8px 0 5px; }
+.product-greeting p { color:#8290a4; font-size:9px; margin:0; }
+.preview-chip { white-space:nowrap; color:#b7c0d0; border:1px solid #343e50; border-radius:999px; padding:6px 8px; font-size:8px; }
+.preview-metrics { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:19px; }
+.preview-metric { border:1px solid #2b3546; border-radius:9px; padding:12px; background:#171f2c; }
+.preview-metric span,.preview-metric small { display:block; color:#8996a9; font-size:8px; }
+.preview-metric strong { display:block; margin:8px 0; font-size:13px; color:#edf1fa; }
+.preview-metric small { line-height:1.45; }
+.metric-orb,.metric-blue { color:#a89aff; margin-right:5px; }.metric-blue { color:#8dbdff; }
+.preview-panel { margin-top:11px; padding:12px; border:1px solid #2b3546; border-radius:10px; background:#141c28; }
+.preview-panel-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:7px; }
+.preview-panel-head strong,.preview-panel-head small { display:block; }.preview-panel-head strong { color:#edf1fa;font-size:10px; }.preview-panel-head small { color:#748197;font-size:7px;margin-top:4px; }.preview-panel-head>span { color:#a99bff;font-size:8px; }
+.preview-finding { display:flex; align-items:center; gap:9px; padding:9px 0; border-top:1px solid #252d3b; }
+.finding-dot { width:6px;height:6px; flex-shrink:0;border-radius:50%; }.dot-red{background:#ef8e91}.dot-amber{background:#e8bd76}.dot-blue{background:#8bbdff}
+.preview-finding div { min-width:0; flex:1; }.preview-finding strong,.preview-finding small { display:block; }.preview-finding strong { color:#dfe5ef;font-size:9px;font-weight:650; }.preview-finding small { color:#77869b;font-size:8px;margin-top:4px; }
+.finding-label { font-size:7px; border-radius:5px; padding:4px 6px; }.label-high{color:#ffaaaa;background:#3b242e}.label-medium{color:#f3d49a;background:#3a3022}.label-info{color:#a7caff;background:#202f43}
+.preview-bottom { display:flex; justify-content:space-between; gap:8px; color:#78869a; font-size:8px; margin-top:12px; }.preview-bottom b { color:#a89aff; }
+.floating-note { position:absolute; display:flex; gap:9px; align-items:center; background:#fffefa; padding:11px 14px; border:1px solid #e4e1dc; border-radius:12px; box-shadow:0 12px 30px rgba(35,35,50,.1); animation:saFloat 5s ease-in-out infinite; }
+.floating-note strong,.floating-note small { display:block; }.floating-note strong{font-size:9px;color:#222733}.floating-note small{font-size:8px;color:#818692;margin-top:4px}.float-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#eeebff;color:#7868d8;font-size:15px}.float-check{background:#e2f4ed;color:#3a9a78}.note-top{top:8px;right:-12px}.note-bottom{bottom:1px;left:-4px;animation-delay:-2.4s}
+.trust-strip { min-height:73px; border-top:1px solid #e5e2dc; border-bottom:1px solid #e5e2dc; display:flex; justify-content:center; align-items:center; gap:28px; flex-wrap:wrap; padding:18px 24px; color:#7b8089; font-size:8px; letter-spacing:.13em; font-weight:800; }
+.trust-strip i { width:4px;height:4px;border-radius:50%;background:#a79be8; }
+.marketing-section,.why-section,.workflow-section,.signup-section { max-width:1180px; margin:0 auto; }
+.platform-section { padding:112px 0 105px; }
+.section-intro { max-width:610px; margin:0 auto 48px; text-align:center; }
+.section-kicker { color:#8070d6; font-size:9px; font-weight:850; letter-spacing:.17em; }
+.section-intro h2,.why-copy h2,.signup-copy h2 { font-size:clamp(38px,4.5vw,57px); line-height:1.02; letter-spacing:-.07em; margin:17px 0 15px; font-weight:760; color:#181b24; }
+.section-intro p { color:#727783; font-size:13px; line-height:1.8; max-width:510px; margin:0 auto; }
+.platform-grid { display:grid; grid-template-columns:1.12fr 1fr 1fr; gap:15px; }
+.platform-card { background:#fbfaf7; border:1px solid #e4e1db; border-radius:17px; overflow:hidden; transition:transform .25s,border-color .25s,box-shadow .25s; }
+.platform-card:hover { transform:translateY(-5px); border-color:#c9c1f2; box-shadow:0 16px 40px rgba(40,37,68,.07); }
+.platform-card-visual { height:190px; margin:10px; border-radius:11px; background:#eeecf9; position:relative; overflow:hidden; }
+.capability-visual { background:radial-gradient(circle at 50% 50%,#d6d1fb,#e9e7f8 52%,#f3f1fb); }
+.capability-ring { position:absolute;left:50%;top:50%;border:1px solid rgba(126,107,211,.3);border-radius:50%;transform:translate(-50%,-50%) rotate(-25deg); }.ring-a{width:220px;height:90px}.ring-b{width:165px;height:65px}
+.capability-center { position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:61px;height:61px;border-radius:17px;background:#22263a;color:#fff;display:grid;place-items:center;font-size:17px;font-weight:800;box-shadow:0 12px 25px #b6b0e0}.capability-center span{position:absolute;right:7px;top:5px;font-size:9px;color:#b7aaff}
+.capability-node { position:absolute;padding:7px 9px;border-radius:7px;background:#fff;color:#5b587b;font-size:8px;font-weight:750;box-shadow:0 5px 12px rgba(40,37,68,.09) }.node-left{left:17%;top:29%}.node-right{right:15%;top:42%}.node-low{left:36%;bottom:14%}
+.list-visual { background:#171c28; padding:18px 15px; color:#f0f2fa; }.list-visual-head{display:flex;justify-content:space-between;font-size:10px;font-weight:750;margin-bottom:12px;color:#c7bfff}.mini-list-line{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid #303746}.mini-list-line>span{height:5px;border-radius:3px;background:#4a5568;width:42%;}.mini-list-line b{font-size:7px;color:#c4ccdb;margin-left:auto;font-weight:600}.mini-dot{width:6px;height:6px;border-radius:50%}.mini-dot.red{background:#f08f91}.mini-dot.amber{background:#edc276}.mini-dot.blue{background:#8dbbff}.mini-list-foot{font-size:8px;color:#7e8aa0;margin-top:9px}
+.fix-visual { background:#e8f0f7;display:grid;place-items:center; }.fix-window{width:76%;padding:14px;background:#fbfcfe;border:1px solid #d5e0ed;border-radius:10px;box-shadow:0 12px 25px rgba(50,70,90,.08)}.fix-window>span{display:block;font-size:8px;color:#738094;margin-bottom:9px}.fix-line{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #e7ebf0;font-size:8px;color:#475468}.fix-line i{font-style:normal;color:#7568d8;font-size:11px}.platform-card-copy{padding:12px 21px 23px}.card-number{font-size:8px;color:#8982c7;letter-spacing:.12em;font-weight:850}.platform-card-copy h3{font-size:18px;letter-spacing:-.04em;margin:12px 0 8px;color:#1b1e27}.platform-card-copy p{font-size:11px;line-height:1.8;color:#737986;margin:0}
+.why-section { display:grid;grid-template-columns:.8fr 1.2fr;gap:95px;padding:88px 0 100px;border-top:1px solid #e5e2dc;align-items:start; }.why-copy h2{font-size:clamp(39px,4vw,54px)}.why-copy p{color:#747985;font-size:13px;line-height:1.9;max-width:370px;margin:20px 0 24px}.text-link span{color:#8070d6;margin-left:8px}.why-points{border-top:1px solid #dedbd5}.why-point{display:grid;grid-template-columns:35px 1fr 18px;gap:14px;padding:23px 0;border-bottom:1px solid #dedbd5;align-items:start}.why-point>span{color:#9a8de0;font-size:10px;font-weight:850}.why-point h3{margin:0 0 7px;font-size:15px;letter-spacing:-.03em;color:#20232c}.why-point p{margin:0;max-width:440px;color:#767b86;font-size:11px;line-height:1.8}.why-point>b{font-size:14px;color:#a49be0}
+.workflow-section { padding:91px 0 106px; border-top:1px solid #e5e2dc; }.workflow-intro{margin-bottom:54px}.workflow-steps{display:grid;grid-template-columns:1fr 30px 1fr 30px 1fr;gap:17px;align-items:center}.workflow-step{min-height:190px;padding:22px;border:1px solid #e2dfd9;border-radius:15px;background:#fbfaf7;position:relative}.workflow-number{font-size:9px;letter-spacing:.13em;color:#8d80d8;font-weight:850}.workflow-icon{display:grid;place-items:center;width:37px;height:37px;margin:19px 0 15px;border-radius:11px;background:#eeebfc;color:#7567d6;font-size:18px}.workflow-step h3{font-size:15px;margin:0 0 7px;color:#20232c}.workflow-step p{font-size:11px;line-height:1.75;color:#7b8089;margin:0}.workflow-connector{text-align:center;color:#9d92e2}
+.signup-section { max-width:none; padding:68px max(32px,calc((100vw - 1180px)/2)); background:#171a25; color:#f5f4fb; display:grid; grid-template-columns:1fr minmax(320px,430px);gap:80px;align-items:center;position:relative;overflow:hidden; }
+.signup-section:before{content:"";position:absolute;width:480px;height:480px;border-radius:50%;right:8%;top:-65%;background:radial-gradient(circle,rgba(135,116,231,.25),transparent 70%);pointer-events:none}
+.signup-copy,.auth-mount{position:relative;z-index:1}.signup-copy .section-kicker{color:#b4a8ff}.signup-copy h2{color:#f5f4fb;font-size:clamp(40px,4vw,55px)}.signup-copy h2 span{color:#b1a5ff}.signup-copy p{max-width:420px;color:#b0b5c4;font-size:13px;line-height:1.9}.signup-assurance{display:flex;align-items:center;gap:9px;color:#b0b5c4;font-size:10px;margin-top:22px}.signup-assurance span{display:grid;place-items:center;width:19px;height:19px;background:#2a3c3a;border-radius:50%;color:#82d7b7}
+.auth-mount #authCard { display:block!important;max-width:none;width:100%;margin:0;padding:27px;border:1px solid #363d50;border-radius:17px;background:#202635;box-shadow:0 22px 55px rgba(0,0,0,.2);color:#f4f5fb; }
+.auth-mount #authCard .card-title { color:#f5f5fb;font-size:22px;letter-spacing:-.04em;text-transform:none;margin-bottom:5px; }.auth-mount #authCard .card-title:after{content:"Create your workspace or sign in to continue.";display:block;font-size:11px;font-weight:450;letter-spacing:0;text-transform:none;color:#aeb7c8;margin-top:8px}.auth-mount #authCard .sa-field-label{color:#b9c2d2;font-size:10px;margin:14px 0 6px}.auth-mount #authCard input:not([type=hidden]){background:#151b28;color:#f4f5fb;border-color:#3a4357;min-height:45px;font-size:12px}.auth-mount #authCard .row button{font-size:11px;min-height:45px}.auth-mount #authCard .row button:first-child{background:#8d7ce8}.auth-mount #authCard .row button.secondary{background:#30384b;border-color:#414b61}.auth-mount #authCard .error{color:#ff9d9d}
+.site-footer{max-width:1180px;margin:0 auto;min-height:95px;display:flex;align-items:center;justify-content:space-between;gap:20px;color:#838791;font-size:10px}.site-footer .site-brand-name{font-size:15px}.site-footer .site-brand-mark{width:31px;height:31px;font-size:15px;border-radius:10px}.site-footer>a:last-child{color:#6d61bd;text-decoration:none;font-weight:750}
+.wrap { max-width:1180px!important;width:calc(100% - 64px)!important;margin:0 auto!important;padding:28px 0 70px!important;display:block!important; }
+.legacy-login-hero,.legacy-trust-panel { display:none!important; }
+#repoCard,#improveBanner,#regressionCard,#domainScoresCard,#scoreCard,#capabilitiesCard,#topRisksCard,#fixCard,#graphCard,#findingsCard { color:var(--text); }
+#repoCard { margin-top:26px; }
+.wrap:has(#repoCard[style*="display: block"]) { background:transparent; }
+@keyframes saRise { from{opacity:0;transform:translateY(13px)}to{opacity:1;transform:translateY(0)} }
+@keyframes saFloat { 0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)} }
+@media(max-width:1100px){.site-nav,.marketing-hero,.marketing-section,.why-section,.workflow-section,.site-footer{width:calc(100% - 48px)}.marketing-hero{gap:28px;grid-template-columns:.88fr 1.12fr}.marketing-hero h1{font-size:clamp(48px,6vw,68px)}.why-section{gap:45px}.platform-grid{gap:11px}.platform-card-copy{padding:10px 15px 20px}.signup-section{padding-left:24px;padding-right:24px;gap:38px}}
+@media(max-width:820px){.site-nav{height:72px}.site-links{display:none;position:absolute;top:65px;left:0;right:0;padding:20px;background:#fbfaf7;border:1px solid #e1ded8;border-radius:13px;box-shadow:0 15px 30px #20202010;flex-direction:column;align-items:flex-start;gap:18px}.nav-open .site-links{display:flex}.mobile-menu-toggle{display:block}.site-nav-actions{margin-left:auto}.nav-login{display:none}.marketing-hero{grid-template-columns:1fr;padding:60px 0 48px;gap:20px}.hero-copy{max-width:650px}.marketing-hero h1{font-size:clamp(52px,9vw,75px)}.hero-product{max-width:680px;width:100%;margin:0 auto;padding:20px 15px}.product-window{transform:none}.note-top{right:0}.trust-strip{gap:13px}.trust-strip span{font-size:7px}.platform-section{padding:78px 0}.platform-grid{grid-template-columns:1fr 1fr}.platform-card-large{grid-column:1/-1}.platform-card-large .platform-card-visual{height:210px}.why-section{grid-template-columns:1fr;gap:32px;padding:72px 0}.workflow-section{padding:72px 0}.signup-section{grid-template-columns:1fr;gap:28px;padding:55px 24px}.signup-copy h2{font-size:47px}.site-footer{min-height:90px}}
+@media(max-width:540px){.site-nav,.marketing-hero,.marketing-section,.why-section,.workflow-section,.site-footer{width:calc(100% - 32px)}.site-brand-name{font-size:16px}.site-brand-mark{width:34px;height:34px}.nav-cta{padding:11px 13px;font-size:10px}.marketing-hero{padding-top:47px}.marketing-hero h1{font-size:clamp(44px,13vw,61px)}.hero-lede{font-size:13px}.hero-actions{gap:15px}.hero-proof{font-size:9px}.hero-product{padding:15px 0 18px}.product-body{min-height:300px}.product-sidebar{width:35px}.product-content{padding:15px 11px 12px}.product-greeting h3{font-size:14px}.preview-chip{display:none}.preview-metrics{gap:6px}.preview-metric{padding:9px}.preview-panel{padding:9px}.preview-finding{gap:6px}.preview-finding strong{font-size:8px}.preview-finding small{font-size:7px}.floating-note{padding:8px 10px}.note-top{top:0;right:-3px}.note-bottom{bottom:0;left:-3px}.float-icon{width:23px;height:23px}.floating-note strong{font-size:8px}.floating-note small{font-size:7px}.trust-strip{justify-content:flex-start;gap:10px;padding:16px}.trust-strip i{display:none}.trust-strip span{width:calc(50% - 8px);line-height:1.6}.platform-grid{grid-template-columns:1fr}.platform-card-large{grid-column:auto}.platform-card-visual{height:175px}.section-intro h2,.why-copy h2{font-size:41px}.why-point{grid-template-columns:25px 1fr 15px;gap:9px}.workflow-steps{grid-template-columns:1fr;gap:10px}.workflow-step{min-height:0}.workflow-connector{transform:rotate(90deg);height:14px}.signup-section{padding:48px 16px}.signup-copy h2{font-size:42px}.auth-mount #authCard{padding:22px 17px}.auth-mount #authCard .row{flex-direction:row}.site-footer{padding:18px 0;flex-wrap:wrap}.site-footer>span{order:3;width:100%}.wrap{width:calc(100% - 32px)!important}.domain-score-grid{grid-template-columns:1fr!important}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+</style>
+
+<style id="secureai-multipage-layer">
+/* SecureAI page separation layer. Existing design tokens and components are preserved. */
+body[data-page="login"],body[data-page="signup"],body[data-page="dashboard"],body[data-page="repositories"],body[data-page="scans"],body[data-page="findings"]{background:#f5f3ee;}
+body[data-page="login"] .marketing-site,body[data-page="signup"] .marketing-site,body[data-page="dashboard"] .marketing-site,body[data-page="repositories"] .marketing-site,body[data-page="scans"] .marketing-site,body[data-page="findings"] .marketing-site,
+body[data-page="login"] .site-footer,body[data-page="signup"] .site-footer,body[data-page="dashboard"] .site-footer,body[data-page="repositories"] .site-footer,body[data-page="scans"] .site-footer,body[data-page="findings"] .site-footer,
+body[data-page="login"] .trust-panel,body[data-page="signup"] .trust-panel{display:none!important;}
+body[data-page="login"] .wrap,body[data-page="signup"] .wrap{min-height:calc(100vh - 40px);display:flex;align-items:center;justify-content:center;gap:28px;max-width:1120px;}
+body[data-page="login"] .legacy-login-hero,body[data-page="signup"] .legacy-login-hero{display:none!important;}
+body[data-page="login"] #authCard,body[data-page="signup"] #authCard{display:block!important;width:min(100%,470px);margin:32px auto;}
+body[data-page="login"] #orgName{display:none!important;} body[data-page="login"] label[for="orgName"]{display:none!important;}
+body[data-page="login"] #authCard .card-title:before{content:"Welcome back";}
+body[data-page="login"] #authCard .card-title{font-size:0;} body[data-page="login"] #authCard .card-title:before{font-size:24px;}
+body[data-page="signup"] #authCard .card-title{font-size:24px;}
+body[data-page="login"] #authCard .row button:first-child{display:none!important;}
+body[data-page="login"] #authCard .row button:last-child{display:block!important;width:100%;}
+body[data-page="login"] #authCard .row button:last-child{font-size:0;} body[data-page="login"] #authCard .row button:last-child:after{content:"Log in";font-size:14px;}
+
+body[data-page="dashboard"] #authCard,body[data-page="repositories"] #authCard,body[data-page="scans"] #authCard,body[data-page="findings"] #authCard{display:none!important;}
+body[data-page="dashboard"] #repoCard,body[data-page="scans"] #repoCard{display:block!important;}
+body[data-page="repositories"] #repoCard{display:block!important;}
+body[data-page="dashboard"] #repoCard{display:none!important;}
+body[data-page="dashboard"] #improveBanner,body[data-page="dashboard"] #regressionCard,body[data-page="dashboard"] #domainScoresCard,body[data-page="dashboard"] #scoreCard,body[data-page="dashboard"] #capabilitiesCard,body[data-page="dashboard"] #graphCard,body[data-page="dashboard"] #topRisksCard{display:block!important;}
+body[data-page="repositories"] #improveBanner,body[data-page="repositories"] #regressionCard,body[data-page="repositories"] #domainScoresCard,body[data-page="repositories"] #scoreCard,body[data-page="repositories"] #capabilitiesCard,body[data-page="repositories"] #graphCard,body[data-page="repositories"] #topRisksCard,body[data-page="repositories"] #findingsCard,body[data-page="repositories"] #fixCard{display:none!important;}
+body[data-page="scans"] #improveBanner,body[data-page="scans"] #regressionCard,body[data-page="scans"] #domainScoresCard,body[data-page="scans"] #scoreCard,body[data-page="scans"] #capabilitiesCard,body[data-page="scans"] #graphCard,body[data-page="scans"] #topRisksCard,body[data-page="scans"] #findingsCard,body[data-page="scans"] #fixCard{display:none!important;}
+body[data-page="findings"] #repoCard,body[data-page="findings"] #improveBanner,body[data-page="findings"] #regressionCard,body[data-page="findings"] #domainScoresCard,body[data-page="findings"] #scoreCard,body[data-page="findings"] #capabilitiesCard,body[data-page="findings"] #graphCard,body[data-page="findings"] #topRisksCard{display:none!important;}
+body[data-page="findings"] #findingsCard,body[data-page="findings"] #fixCard{display:block!important;}
+.secureai-app-nav{position:sticky;top:0;z-index:1000;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px max(18px,calc((100vw - 1120px)/2));background:rgba(250,249,246,.96);border-bottom:1px solid #e3e0d8;backdrop-filter:blur(14px);}
+.secureai-app-nav .nav-brand{font-weight:900;color:#171923;text-decoration:none;margin-right:auto;letter-spacing:-.04em}.secureai-app-nav .nav-brand span{color:#8068e8}.secureai-app-nav a{font-size:13px;font-weight:700;color:#55596a;text-decoration:none;padding:9px 11px;border-radius:10px}.secureai-app-nav a.active{background:#ece8ff;color:#6d58d7}.secureai-app-nav .logout{border:1px solid #dedbea;background:#fff;cursor:pointer;font:inherit;font-size:13px;font-weight:700;border-radius:10px;padding:9px 12px;color:#55596a}
+body[data-page="dashboard"] .wrap,body[data-page="repositories"] .wrap,body[data-page="scans"] .wrap,body[data-page="findings"] .wrap{max-width:1120px;margin:34px auto;padding:0 18px;}
+body[data-page="dashboard"] .hero,body[data-page="repositories"] .hero,body[data-page="scans"] .hero,body[data-page="findings"] .hero{display:none!important;}
+body[data-page="dashboard"] .card,body[data-page="repositories"] .card,body[data-page="scans"] .card,body[data-page="findings"] .card{box-shadow:0 14px 40px rgba(22,25,38,.06);}
+body[data-page="landing"] .secureai-app-nav{display:none!important;} body[data-page="login"] .secureai-app-nav,body[data-page="signup"] .secureai-app-nav{justify-content:flex-end;}
+@media(max-width:680px){.secureai-app-nav{gap:3px;padding:10px}.secureai-app-nav .nav-brand{width:100%;margin-bottom:4px}.secureai-app-nav a{padding:8px 7px;font-size:12px}body[data-page="dashboard"] .wrap,body[data-page="repositories"] .wrap,body[data-page="scans"] .wrap,body[data-page="findings"] .wrap{margin:18px auto}}
+</style>
+
+<style id="secureai-page-routes">
+/* SecureAI page separation v2: each URL has a focused purpose. */
+body[data-page="landing"] .signup-section, body[data-page="landing"] .wrap {display:none!important;}
+body[data-page="landing"] .site-nav-actions .nav-login, body[data-page="landing"] .site-nav-actions .nav-cta {cursor:pointer;}
+body[data-page="login"] .site-nav, body[data-page="signup"] .site-nav,
+body[data-page="dashboard"] .site-nav, body[data-page="repositories"] .site-nav,
+body[data-page="scans"] .site-nav, body[data-page="findings"] .site-nav,
+body[data-page="login"] .marketing-site > :not(.signup-section),
+body[data-page="signup"] .marketing-site > :not(.signup-section),
+body[data-page="login"] .site-footer, body[data-page="signup"] .site-footer,
+body[data-page="dashboard"] .marketing-site, body[data-page="repositories"] .marketing-site,
+body[data-page="scans"] .marketing-site, body[data-page="findings"] .marketing-site,
+body[data-page="dashboard"] .site-footer, body[data-page="repositories"] .site-footer,
+body[data-page="scans"] .site-footer, body[data-page="findings"] .site-footer {display:none!important;}
+body[data-page="login"] .signup-section, body[data-page="signup"] .signup-section {display:grid!important;min-height:calc(100vh - 58px);align-items:center;padding:48px max(24px,calc((100vw - 1120px)/2));}
+body[data-page="login"] .signup-copy, body[data-page="signup"] .signup-copy {max-width:520px;}
+body[data-page="login"] #authCard, body[data-page="signup"] #authCard {display:block!important;}
+body[data-page="login"] #repoCard, body[data-page="signup"] #repoCard {display:none!important;}
+body[data-page="login"] #authCard .row button:first-child {display:none!important;}
+body[data-page="login"] #authCard .row button:last-child {display:block!important;width:100%;}
+body[data-page="signup"] #authCard .row button:first-child {display:block!important;width:100%;}
+body[data-page="signup"] #authCard .row button:last-child {display:none!important;}
+body[data-page="login"] .signup-section, body[data-page="signup"] .signup-section {grid-template-columns:minmax(0,1fr) minmax(360px,470px);gap:64px;}
+body[data-page="login"] .auth-mount, body[data-page="signup"] .auth-mount {width:100%;}
+body[data-page="login"] .wrap, body[data-page="signup"] .wrap {display:none!important;}
+body[data-page="dashboard"] .wrap, body[data-page="repositories"] .wrap, body[data-page="scans"] .wrap, body[data-page="findings"] .wrap {display:block!important;}
+body[data-page="dashboard"] #repoCard {display:none!important;}
+body[data-page="dashboard"] #authCard, body[data-page="repositories"] #authCard, body[data-page="scans"] #authCard, body[data-page="findings"] #authCard {display:none!important;}
+body[data-page="dashboard"] .wrap:before {content:'SECURITY OVERVIEW';display:block;color:#8068e8;font-weight:800;letter-spacing:.16em;font-size:11px;margin:0 0 12px;}
+body[data-page="repositories"] .wrap:before {content:'REPOSITORY MANAGEMENT';display:block;color:#8068e8;font-weight:800;letter-spacing:.16em;font-size:11px;margin:0 0 12px;}
+body[data-page="scans"] .wrap:before {content:'SCAN CENTER';display:block;color:#8068e8;font-weight:800;letter-spacing:.16em;font-size:11px;margin:0 0 12px;}
+body[data-page="findings"] .wrap:before {content:'FINDINGS & REMEDIATION';display:block;color:#8068e8;font-weight:800;letter-spacing:.16em;font-size:11px;margin:0 0 12px;}
+body[data-page="dashboard"] #findingsCard, body[data-page="dashboard"] #fixCard {display:none!important;}
+body[data-page="repositories"] #repoCard, body[data-page="scans"] #repoCard {display:block!important;}
+body[data-page="scans"] #repoCard > *:not(#scanStatusBanner):not(#reportBtn):not(#rescanBtn) {display:none!important;}
+body[data-page="scans"] #repoCard .card-title:first-child {display:block!important;}
+body[data-page="scans"] #repoUrl, body[data-page="scans"] #rescanBtn, body[data-page="scans"] #reportBtn, body[data-page="scans"] #scanStatusBanner {display:block!important;}
+body[data-page="scans"] #repoCard button[onclick="addAndScan()"] {display:block!important;}
+body[data-page="findings"] #findingsCard, body[data-page="findings"] #fixCard {display:block!important;}
+body[data-page="login"] .secureai-app-nav, body[data-page="signup"] .secureai-app-nav {display:none!important;}
+body[data-page="landing"] .secureai-app-nav {display:none!important;}
+.secureai-app-nav a.active {box-shadow:inset 0 -2px #8068e8;}
+@media(max-width:760px){body[data-page="login"] .signup-section,body[data-page="signup"] .signup-section{grid-template-columns:1fr;gap:24px;padding:36px 20px;}body[data-page="login"] .signup-copy,body[data-page="signup"] .signup-copy{display:none;}}
+</style>
+</head>
+<body>
+<nav class="secureai-app-nav" aria-label="SecureAI navigation"><a class="nav-brand" href="index.html">secureai<span>.</span></a><a data-nav="dashboard" href="dashboard.html">Overview</a><a data-nav="repositories" href="dashboard.html">Repositories</a><a data-nav="scans" href="history.html">Scans</a><a data-nav="findings" href="history.html">Findings</a><a href="index.html#platform">Platform</a><button class="logout" type="button" onclick="secureaiLogout()">Log out</button></nav>
+<script>
+(function(){const p=(location.pathname.split('/').pop()||'index.html').toLowerCase().replace('.html','');const page=['login','signup','dashboard','repositories','scans','findings'].includes(p)?p:'landing';document.body.dataset.page=page;document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-nav]').forEach(a=>{if(a.dataset.nav===page)a.classList.add('active')});const n=document.querySelector('.secureai-app-nav');if(n){if(page==='landing'){n.querySelectorAll('[data-nav],.logout').forEach(e=>e.style.display='none')}else{n.querySelector('a[href="index.html#platform"]').style.display='none';}}if(page==='login'){const pw=document.getElementById('password');if(pw)pw.autocomplete='current-password';}if(page==='signup'){const pw=document.getElementById('password');if(pw)pw.autocomplete='new-password';}});})();
+function secureaiLogout(){try{sessionStorage.removeItem('aisc_session')}catch(e){}location.href='index.html';}
+</script>
+
+<header class="site-nav">
+  <a class="site-brand" href="#home" aria-label="SecureAI home">
+    <span class="site-brand-mark">S</span>
+    <span class="site-brand-name">secureai<span class="site-brand-dot">.</span><small>AI SECURITY POSTURE</small></span>
+  </a>
+  <nav class="site-links" aria-label="Main navigation">
+    <a href="#platform">Platform</a><a href="#how-it-works">How it works</a><a href="#why-secureai">Why SecureAI</a>
+  </nav>
+  <div class="site-nav-actions">
+    <button class="nav-login" type="button" onclick="location.href='login.html'">Log in</button>
+    <button class="nav-cta" type="button" onclick="location.href='signup.html'">Get started <span>↗</span></button>
+  </div>
+  <button class="mobile-menu-toggle" type="button" aria-label="Open navigation" onclick="document.body.classList.toggle('nav-open')">☰</button>
+</header>
+
+<main class="marketing-site" id="home">
+  <section class="marketing-hero">
+    <div class="hero-copy">
+      <div class="eyebrow-pill"><span class="eyebrow-dot"></span> AI SECURITY, BUILT FOR WHAT'S NEXT</div>
+      <h1>Build with AI.<br><span>Stay in control.</span></h1>
+      <p class="hero-lede">Understand what your AI-enabled code can do, uncover risky capabilities, and give your team a clearer path from findings to fixes.</p>
+      <div class="hero-actions">
+        <button class="hero-primary" type="button" onclick="location.href='signup.html'">Explore SecureAI <span>↗</span></button>
+        <a class="hero-secondary" href="#platform">See how it works <span>↓</span></a>
+      </div>
+      <div class="hero-proof"><span class="proof-icon">✓</span><span>Designed for developers and teams building with AI</span></div>
+    </div>
+    <div class="hero-product" aria-label="Illustrative SecureAI security overview">
+      <div class="product-glow"></div>
+      <div class="product-window">
+        <div class="product-window-top"><div class="window-dots"><i></i><i></i><i></i></div><span>SECUREAI / WORKSPACE</span><span class="window-status"><i></i> Overview</span></div>
+        <div class="product-body">
+          <aside class="product-sidebar"><div class="sidebar-symbol">S</div><span class="sidebar-active">▦</span><span>⌘</span><span>⌁</span><span>⚙</span><div class="sidebar-bottom">?</div></aside>
+          <div class="product-content">
+            <div class="product-greeting"><div><small>WORKSPACE OVERVIEW</small><h3>Your AI security posture</h3><p>Understand risks across your connected codebase.</p></div><span class="preview-chip"><i></i> Preview</span></div>
+            <div class="preview-metrics">
+              <div class="preview-metric"><span>Security posture</span><strong><b class="metric-orb">◉</b> In focus</strong><small>Review findings to understand exposure</small></div>
+              <div class="preview-metric"><span>AI capabilities</span><strong><b class="metric-blue">⌘</b> Mapped</strong><small>See what your AI can do</small></div>
+            </div>
+            <div class="preview-panel">
+              <div class="preview-panel-head"><div><strong>Findings to review</strong><small>Example interface · not live scan data</small></div><span>Prioritized view</span></div>
+              <div class="preview-finding"><i class="finding-dot dot-red"></i><div><strong>High-impact capability</strong><small>Review the evidence and potential impact</small></div><span class="finding-label label-high">High</span></div>
+              <div class="preview-finding"><i class="finding-dot dot-amber"></i><div><strong>Permission boundary</strong><small>Check access scope and safeguards</small></div><span class="finding-label label-medium">Review</span></div>
+              <div class="preview-finding"><i class="finding-dot dot-blue"></i><div><strong>Code path to inspect</strong><small>Follow the signal to its source</small></div><span class="finding-label label-info">Info</span></div>
+            </div>
+            <div class="preview-bottom"><span><i></i> Clearer context for the next decision</span><span>SecureAI <b>↗</b></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="floating-note note-top"><span class="float-icon">⌕</span><span><strong>Find the signal</strong><small>Surface risks in context</small></span></div>
+      <div class="floating-note note-bottom"><span class="float-icon float-check">✓</span><span><strong>Focus on what matters</strong><small>Prioritize the next step</small></span></div>
+    </div>
+  </section>
+
+  <div class="trust-strip"><span>MADE FOR TEAMS BUILDING WITH AI</span><i></i><span>AI CAPABILITY VISIBILITY</span><i></i><span>RISK-FOCUSED REVIEW</span><i></i><span>DEVELOPER-FIRST WORKFLOW</span></div>
+
+  <section class="marketing-section platform-section" id="platform">
+    <div class="section-intro"><span class="section-kicker">THE PLATFORM</span><h2>Security context for the<br><span>AI you’re shipping.</span></h2><p>Move beyond a wall of alerts. SecureAI helps make code-level signals easier to understand, review, and act on.</p></div>
+    <div class="platform-grid">
+      <article class="platform-card platform-card-large"><div class="platform-card-visual capability-visual"><div class="capability-ring ring-a"></div><div class="capability-ring ring-b"></div><div class="capability-center">AI<span>↗</span></div><span class="capability-node node-left">Code</span><span class="capability-node node-right">Tools</span><span class="capability-node node-low">Actions</span></div><div class="platform-card-copy"><span class="card-number">01 / DISCOVER</span><h3>Understand AI capabilities</h3><p>See the actions and access paths represented in your AI-enabled codebase, so risky behavior is easier to spot.</p></div></article>
+      <article class="platform-card"><div class="platform-card-visual list-visual"><div class="list-visual-head"><span>Review queue</span><span>↗</span></div><div class="mini-list-line"><i class="mini-dot red"></i><span></span><b>High</b></div><div class="mini-list-line"><i class="mini-dot amber"></i><span></span><b>Review</b></div><div class="mini-list-line"><i class="mini-dot blue"></i><span></span><b>Info</b></div><div class="mini-list-foot">Context before urgency</div></div><div class="platform-card-copy"><span class="card-number">02 / PRIORITIZE</span><h3>Focus on meaningful findings</h3><p>Bring evidence and potential impact into view to help teams decide what deserves attention first.</p></div></article>
+      <article class="platform-card"><div class="platform-card-visual fix-visual"><div class="fix-window"><span>Suggested next step</span><div class="fix-line"><i>✓</i><b>Review permissions</b></div><div class="fix-line"><i>↗</i><b>Trace the code path</b></div><div class="fix-line"><i>○</i><b>Validate safeguards</b></div></div></div><div class="platform-card-copy"><span class="card-number">03 / TAKE ACTION</span><h3>Move from finding to fix</h3><p>Give developers a clearer starting point for investigating and addressing a potential issue.</p></div></article>
+    </div>
+  </section>
+
+  <section class="why-section" id="why-secureai">
+    <div class="why-copy"><span class="section-kicker">WHY SECUREAI</span><h2>Make risk easier<br>to <span>reason about.</span></h2><p>AI systems can connect code, tools, data, and consequential actions. SecureAI is designed to help teams inspect those connections and review risk with more context.</p><a href="#how-it-works" class="text-link">See the workflow <span>↗</span></a></div>
+    <div class="why-points">
+      <div class="why-point"><span>01</span><div><h3>Built around real code</h3><p>Start from a repository and investigate signals grounded in the project you’re building.</p></div><b>↗</b></div>
+      <div class="why-point"><span>02</span><div><h3>Readable by the whole team</h3><p>Present findings in a way that helps developers understand why a signal may matter.</p></div><b>↗</b></div>
+      <div class="why-point"><span>03</span><div><h3>Human-led decisions</h3><p>Use findings as a guide for investigation—not as a substitute for engineering judgment.</p></div><b>↗</b></div>
+    </div>
+  </section>
+
+  <section class="workflow-section" id="how-it-works">
+    <div class="section-intro workflow-intro"><span class="section-kicker">HOW IT WORKS</span><h2>From repository to<br><span>clearer next steps.</span></h2></div>
+    <div class="workflow-steps"><div class="workflow-step"><span class="workflow-number">01</span><div class="workflow-icon">⌘</div><h3>Connect</h3><p>Connect a GitHub repository or provide a repository URL.</p></div><div class="workflow-connector">→</div><div class="workflow-step"><span class="workflow-number">02</span><div class="workflow-icon">⌕</div><h3>Analyze</h3><p>Run the available SecureAI analysis and inspect its findings.</p></div><div class="workflow-connector">→</div><div class="workflow-step"><span class="workflow-number">03</span><div class="workflow-icon">↗</div><h3>Prioritize</h3><p>Review evidence, understand impact, and decide what to address.</p></div></div>
+  </section>
+
+  <section class="signup-section" id="signup-section">
+    <div class="signup-copy"><span class="section-kicker">START WITH YOUR CODEBASE</span><h2>Build boldly.<br><span>Review risk clearly.</span></h2><p>Bring your repository into SecureAI and start exploring your AI security posture.</p><div class="signup-assurance"><span>✓</span> You stay in control of the decisions</div></div>
+    <div id="auth-mount" class="auth-mount"></div>
+  </section>
+</main>
+<footer class="site-footer"><a class="site-brand" href="#home"><span class="site-brand-mark">S</span><span class="site-brand-name">secureai<span class="site-brand-dot">.</span><small>AI SECURITY POSTURE</small></span></a><span>Security context for teams building with AI.</span><a href="#home">Back to top ↑</a></footer>
+
+<div class="wrap">
+
+  <div class="hero legacy-login-hero">
+    <div class="brand-row"><div class="brand-mark">S</div><div><div class="logo">SECUREAI <span class="brand-beta">PILOT</span></div><div class="brand-caption">AI SECURITY POSTURE</div></div><div class="hero-status"><span class="live-dot"></span> Security workspace</div></div>
+    <h1>Understand your AI risk. <span>Ship with confidence.</span></h1>
+    <p>Discover risky capabilities, review security findings, and prioritize fixes across your AI-enabled codebase.</p>
+  </div>
+
+  <section class="trust-panel legacy-trust-panel" aria-label="SecureAI platform highlights">
+    <div class="trust-panel-top"><span class="eyebrow">AI SECURITY, MADE ACTIONABLE</span><span class="orbit-status"><i></i> Built for teams</span></div>
+    <div class="security-visual" aria-hidden="true">
+      <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
+      <div class="core-shield"><svg viewBox="0 0 64 72" role="presentation"><path d="M32 4 55 13v18c0 16-9 27-23 36C18 58 9 47 9 31V13Z" fill="none" stroke="currentColor" stroke-width="3"/><path d="m21 35 7 7 15-17" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span class="orbit-node node-a">AI</span><span class="orbit-node node-b">✓</span><span class="orbit-node node-c">↗</span>
+    </div>
+    <div class="trust-panel-copy"><h2>Know what to fix.<br><span>Before it becomes a risk.</span></h2><p>Turn code-level signals into a clearer, prioritized view of your AI security posture.</p></div>
+    <div class="feature-row"><div class="feature-icon">⌕</div><div><strong>Discover hidden risks</strong><small>Surface risky capabilities in your codebase</small></div><span class="feature-arrow">↗</span></div>
+    <div class="feature-row"><div class="feature-icon">◎</div><div><strong>Prioritize with context</strong><small>Focus attention on the findings that matter</small></div><span class="feature-arrow">↗</span></div>
+    <div class="trust-footer"><span class="footer-check">✓</span> A clearer path from findings to fixes</div>
+  </section>
+
+  <div id="authCard" class="card">
+    <div class="card-title">Get started</div>
+    <label class="sa-field-label" for="email">Work email</label><input id="email" type="email" placeholder="you@company.com" autocomplete="email" />
+    <label class="sa-field-label" for="password">Password</label><input id="password" type="password" placeholder="Enter your password" autocomplete="new-password" />
+    <label class="sa-field-label" for="orgName">Workspace name</label><input id="orgName" placeholder="Company or project name" autocomplete="organization" />
+    <div class="row">
+      <button onclick="signup()">Sign up</button>
+      <button class="secondary" onclick="login()">Log in</button>
+    </div>
+    <div id="authError" class="error"></div>
+    <input id="apiBase" type="hidden" value="" aria-hidden="true" />
+  </div>
+
+  <div id="repoCard" class="card" style="display:none">
+    <div class="card-title">Connect a repository</div>
+    <button class="block" onclick="connectGithub()">Connect with GitHub</button>
+    <div id="githubFallbackNote" class="hint" style="display:none; margin-top:10px; margin-bottom:0;"></div>
+    <div id="githubRepoChooser" style="display:none; margin-top:12px;">
+      <label for="githubRepoSelect" class="hint" style="display:block; margin-bottom:6px;">
+        Choose a repository you authorized
+      </label>
+      <div class="row" style="align-items:stretch;">
+        <select id="githubRepoSelect"
+                style="flex:1; width:100%; padding:11px; border-radius:10px; border:1px solid #ddd; background:#fff;">
+          <option value="">Loading repositories...</option>
+        </select>
+        <button class="secondary"
+                onclick="addSelectedGithubRepo()"
+                style="min-width:120px;">
+          Add repo
+        </button>
+      </div>
+    </div>
+
+    <div id="connectedReposCard" style="display:none; margin-top:16px;">
+      <div class="card-title" style="font-size:15px; margin-bottom:8px;">
+        Your connected repositories
+      </div>
+      <div id="connectedReposList"></div>
+    </div>
+
+    <div class="or-sep">or paste a repo URL</div>
+    <input id="repoUrl" placeholder="https://github.com/your-org/your-repo.git" />
+    <button class="secondary block" onclick="addAndScan()">Connect &amp; scan</button>
+    <button class="secondary block" onclick="rescan()" id="rescanBtn" style="display:none; margin-top:8px;">Rescan repository</button>
+    <button class="secondary block" onclick="downloadReport()" id="reportBtn" style="display:none; margin-top:8px;">Download Safety Report (PDF)</button>
+    <div id="scanStatusBanner" class="status-banner" style="display:none"></div>
+  </div>
+
+  <div id="improveBanner" class="improve-banner" style="display:none"></div>
+
+  <div id="regressionCard" class="card" style="display:none"></div>
+
+  <!-- Domain score summary -->
+<div id="domainScoresCard" class="domain-score-grid" style="display:none">
+
+  <div class="card domain-score-card">
+    <div class="domain-score-title">AI Safety</div>
+    <div class="domain-score-description">
+      AI-specific risks and AI-controlled consequential actions.
+    </div>
+    <div class="domain-score-number" id="aiSafetyScore">--</div>
+    <div class="domain-score-label" id="aiSafetyLabel">--</div>
+    <div class="domain-score-counts" id="aiSafetyCounts"></div>
+  </div>
+
+  <div class="card domain-score-card">
+    <div class="domain-score-title">Project Security</div>
+    <div class="domain-score-description">
+      Application and infrastructure security risks.
+    </div>
+    <div class="domain-score-number" id="projectSecurityScore">--</div>
+    <div class="domain-score-label" id="projectSecurityLabel">--</div>
+    <div class="domain-score-counts" id="projectSecurityCounts"></div>
+  </div>
+
+  <div class="card domain-score-card">
+    <div class="domain-score-title">Overall</div>
+    <div class="domain-score-description">
+      Combined scored findings across both domains.
+    </div>
+    <div class="domain-score-number" id="overallDomainScore">--</div>
+    <div class="domain-score-label" id="overallDomainLabel">--</div>
+    <div class="domain-score-counts" id="overallDomainCounts"></div>
+  </div>
+
+</div>
+<!-- Score hero -->
+  <div id="scoreCard" class="card score-card" style="display:none">
+    <div class="score-ring" id="scoreRing">
+      <div class="score-ring-inner">
+        <div class="score-num" id="scoreNum">--</div>
+        <div class="score-max">/ 100</div>
+      </div>
+    </div>
+    <div class="risk-label" id="scoreLabel">--</div>
+    <div class="counts-row" id="scoreCounts"></div>
+    <div class="main-concern-line" id="mainConcern" style="display:none"></div>
+    <div class="score-footnote">Heuristic score based on detected and scored findings across AI Safety and Project Security — not a percentage of how secure your code is.</div>
+    <div class="score-footnote" id="unscoredNote" style="display:none"></div>
+  </div>
+
+  <!-- What your AI can do -->
+  <div id="capabilitiesCard" class="card" style="display:none">
+    <div class="card-title">What your AI can do</div>
+    <div class="capability-grid" id="capabilityGrid"></div>
+  </div>
+
+  <!-- Top risks -->
+  <div id="topRisksCard" class="card" style="display:none">
+    <div class="card-title">Top risks</div>
+    <div id="topRisksList"></div>
+  </div>
+
+  <!-- Fix My Score -->
+  <div id="fixCard" class="card fix-score-card" style="display:none">
+    <div class="card-title">Fix my score</div>
+    <div class="fix-list" id="fixList"></div>
+    <div class="potential-line">Potential score: <span class="points-big" id="potentialScore">--</span></div>
+    <div class="hint" style="margin-top:8px; margin-bottom:0;">Preview-only estimate — review each suggested patch below before applying.</div>
+  </div>
+
+  <!-- Capability graph / aha moment -->
+  <div id="graphCard" class="card" style="display:none">
+    <div class="card-title">How your AI's capabilities connect</div>
+    <div id="graphList"></div>
+  </div>
+
+  <!-- All findings -->
+  <div id="findingsCard" class="card" style="display:none">
+    <div id="findingFilters" class="finding-filter-bar">
+
+    <button type="button"
+            class="finding-filter-btn active"
+            data-finding-filter="all"
+            onclick="setFindingFilter('all')">
+      All
+    </button>
+
+    <button type="button"
+            class="finding-filter-btn"
+            data-finding-filter="AI_SAFETY"
+            onclick="setFindingFilter('AI_SAFETY')">
+      AI Safety
+    </button>
+
+    <button type="button"
+            class="finding-filter-btn"
+            data-finding-filter="PROJECT_SECURITY"
+            onclick="setFindingFilter('PROJECT_SECURITY')">
+      Project Security
+    </button>
+
+    <button type="button"
+            class="finding-filter-btn"
+            data-finding-filter="LEADS"
+            onclick="setFindingFilter('LEADS')">
+      Potential Leads
+    </button>
+
+  </div>
+
+  <div id="findingSummary" class="finding-summary"></div>
+  <details class="all-findings">
+      <summary id="allFindingsSummary">All findings</summary>
+      <div id="findingsList" style="margin-top:14px;"></div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+let token = null, orgId = null, repoId = null, scanId = null;
+let lastScoreSeen = null;
+let allFindingsCache = [];
+
+const CATEGORY_LABELS = {
+  FINANCIAL: "Move money",
+  DATA: "Access or modify data",
+  COMMUNICATION: "Send external communication",
+  INFRASTRUCTURE: "Execute code or infrastructure",
+  CODE: "Modify code without review",
+};
+const SEV_COLOR = { CRITICAL: "var(--critical)", HIGH: "var(--high)", MEDIUM: "var(--medium)", LOW: "var(--low)" };
+const SEV_DOT = { CRITICAL: "🔴", HIGH: "🟠 ", MEDIUM: "🟡", LOW: "🟢" };
+const SEV_RANK = { CRITICAL: 3, HIGH: 2, MEDIUM: 1, LOW: 0 };
+
+// API routing:
+// - Local Live Server (127.0.0.1:5500 / localhost:5500): backend defaults to port 8001.
+// - Same-origin deployment: leave API_BASE_URL empty.
+// - Separate deployed backend: set API_BASE_URL to its HTTPS base URL.
+const API_BASE_URL = '';
+function api() {
+  const field = document.getElementById('apiBase');
+  const override = field ? field.value.trim() : '';
+  const host = location.hostname;
+  const isLocalFrontend = (host === '127.0.0.1' || host === 'localhost') &&
+    (location.port === '5500' || location.port === '5501' || location.protocol === 'file:');
+  const fallback = isLocalFrontend ? 'http://127.0.0.1:8001' : (window.SECUREAI_API_BASE || location.origin);
+  return (override || API_BASE_URL || fallback).replace(/\/$/, '');
+}
+function headers() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }; }
+function esc(s) { return (s || '').replace(/</g, '&lt;'); }
+
+// Session persistence: without this, an accidental page reload (e.g. a
+// dev-server auto-refresh triggered by unrelated backend file changes)
+// silently wipes the in-memory token/orgId and the page looks like it
+// "went back to login" with no error message explaining why.
+function saveSession() {
+  try {
+    sessionStorage.setItem('aisc_session', JSON.stringify({ token, orgId }));
+  } catch (e) { /* sessionStorage unavailable (e.g. file:// in some browsers) -- fail silently */ }
+}
+
+function restoreSession() {
+  try {
+    const raw = sessionStorage.getItem('aisc_session');
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved.token || !saved.orgId) return false;
+    token = saved.token; orgId = saved.orgId;
+    document.getElementById('authCard').style.display = 'none';
+    document.getElementById('repoCard').style.display = 'block';
+    return true;
+  } catch (e) { return false; }
+}
+
+function clearSession() {
+  token = null; orgId = null;
+  try { sessionStorage.removeItem('aisc_session'); } catch (e) {}
+}
+
+async function sendAuthRequest(kind, body) {
+  const error = document.getElementById('authError');
+  error.textContent = '';
+  const endpoint = api() + '/auth/' + kind;
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    await handleAuth(r);
+  } catch (err) {
+    error.textContent = 'Could not connect to the backend at ' + api() +
+      '. Confirm the backend is running on port 8001, or configure the deployed API URL. ' +
+      'If the backend is running, check CORS settings.';
+  }
+}
+
+async function signup() {
+  const body = {
+    email: document.getElementById('email').value.trim(),
+    password: document.getElementById('password').value,
+    organization_name: document.getElementById('orgName').value.trim(),
+  };
+  await sendAuthRequest('signup', body);
+}
+
+async function login() {
+  const body = {
+    email: document.getElementById('email').value.trim(),
+    password: document.getElementById('password').value
+  };
+  await sendAuthRequest('login', body);
+}
+
+async function handleAuth(r) {
+  const error = document.getElementById('authError');
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    if (r.status === 405) {
+      error.textContent = 'The backend responded with 405 for ' + r.url +
+        '. The frontend is reaching a server, but that server does not allow this POST route. ' +
+        'Verify the API base URL and that POST /auth/' + (r.url.endsWith('/auth/signup') ? 'signup' : 'login') +
+        ' is registered by the backend.';
+    } else {
+      error.textContent = e.detail || ('Request failed (' + r.status + ') at ' + r.url);
+    }
+    return;
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!data.access_token || !data.organization_id) {
+    error.textContent = 'The auth endpoint responded, but its JSON did not contain access_token and organization_id.';
+    return;
+  }
+  token = data.access_token; orgId = data.organization_id;
+  saveSession();
+  // Successful signup/login always enters the authenticated workspace.
+  window.location.href = 'dashboard.html';
+}
+
+// Restore a session automatically if the page reloads (see saveSession above).
+// Session restore intentionally disabled: dashboard starts at Login on every page load.
+
+async function connectGithub() {
+  const note = document.getElementById('githubFallbackNote');
+
+  const githubAccountLogin = window.prompt(
+    'Enter the GitHub username or organization where you will install the AI Safety Checkup App:'
+  );
+
+  if (githubAccountLogin === null) {
+    return;
+  }
+
+  const login = githubAccountLogin.trim();
+
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) {
+    if (note) {
+      note.textContent = 'Enter a valid GitHub username or organization name.';
+    }
+    return;
+  }
+
+  try {
+    if (note) {
+      note.textContent = 'Preparing secure GitHub connection...';
+    }
+
+    const response = await fetch(
+      api() + '/integrations/github/app/install?github_account_login=' +
+        encodeURIComponent(login),
+      {
+        headers: headers()
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || 'Could not start GitHub connection.');
+    }
+
+    if (!data.install_url) {
+      throw new Error('The server did not return a GitHub installation URL.');
+    }
+
+    window.location.href = data.install_url;
+  } catch (error) {
+    if (note) {
+      note.textContent = error.message || 'GitHub connection failed. Please try again.';
+    } else {
+      window.alert(error.message || 'GitHub connection failed. Please try again.');
+    }
+  }
+}
+
+
+async function loadGithubRepos() {
+  const chooser = document.getElementById('githubRepoChooser');
+  const select = document.getElementById('githubRepoSelect');
+
+  try {
+    const r = await fetch(api() + '/integrations/github/repos', {
+      headers: headers()
+    });
+
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      const note = document.getElementById('githubFallbackNote');
+      note.style.display = 'block';
+      note.textContent = e.detail || 'Could not list GitHub repositories.';
+      return;
+    }
+
+    const repos = await r.json();
+
+    select.innerHTML =
+      '<option value="">Select a repository...</option>' +
+      repos.map(r =>
+        '<option value="' + esc(r.clone_url) + '">' +
+        esc(r.full_name) +
+        (r.private ? ' (private)' : ' (public)') +
+        '</option>'
+      ).join('');
+
+    chooser.style.display = 'block';
+    await loadConnectedRepos();
+  } catch (e) {
+    const note = document.getElementById('githubFallbackNote');
+    note.style.display = 'block';
+    note.textContent = 'Could not load your GitHub repositories.';
+  }
+}
+
+async function loadConnectedRepos() {
+  const card = document.getElementById('connectedReposCard');
+  const list = document.getElementById('connectedReposList');
+
+  try {
+    const r = await fetch(api() + '/repositories', {
+      headers: headers()
+    });
+
+    if (!r.ok) return;
+
+    const repos = await r.json();
+    card.style.display = 'block';
+
+    if (!repos.length) {
+      list.innerHTML =
+        '<div class="empty-state" style="padding:10px 0;">' +
+        'No repositories added yet.' +
+        '</div>';
+      return;
+    }
+
+    list.innerHTML = repos.map(repo => (
+      '<div class="fix-item" style="gap:10px; align-items:center;">' +
+        '<div style="min-width:0; flex:1;">' +
+          '<div style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
+            esc(repo.repo_name) +
+          '</div>' +
+          '<div class="hint" style="margin:2px 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
+            esc(repo.repo_url) +
+          '</div>' +
+        '</div>' +
+        '<button class="secondary" onclick="scanManagedRepo(\'' + repo.id + '\')">Scan</button>' +
+        '<button class="secondary" onclick="removeManagedRepo(\'' + repo.id + '\')">Remove</button>' +
+      '</div>'
+    )).join('');
+  } catch (e) {
+    card.style.display = 'none';
+  }
+}
+
+async function addSelectedGithubRepo() {
+  const select = document.getElementById('githubRepoSelect');
+
+  if (!select.value) {
+    setScanStatus('Select a repository first.', false);
+    return;
+  }
+
+  const option = select.options[select.selectedIndex];
+  const repoName = option.textContent.replace(/ \(private\)| \(public\)$/, '');
+
+  setScanStatus('Adding repository...', true);
+
+  const r = await fetch(api() + '/repositories', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      repo_url: select.value,
+      repo_name: repoName,
+      provider: 'github'
+    })
+  });
+
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    setScanStatus(e.detail || 'Failed to add repository.', false);
+    return;
+  }
+
+  const repo = await r.json();
+
+  repoId = repo.id;
+  document.getElementById('repoUrl').value = repo.repo_url;
+  document.getElementById('rescanBtn').style.display = 'block';
+  document.getElementById('reportBtn').style.display = 'none';
+
+  await loadConnectedRepos();
+
+  setScanStatus('Repository added. Starting scan...', true);
+  await runScan();
+}
+
+async function scanManagedRepo(id) {
+  repoId = id;
+  document.getElementById('rescanBtn').style.display = 'block';
+  document.getElementById('reportBtn').style.display = 'none';
+  await runScan();
+}
+
+async function removeManagedRepo(id) {
+  if (!confirm(
+    'Remove this repository from AI Safety Checkup? Previous scan data for it will also be removed.'
+  )) return;
+
+  const r = await fetch(
+    api() + '/repositories/' + id,
+    {
+      method: 'DELETE',
+      headers: headers()
+    }
+  );
+
+  if (!r.ok) {
+    alert('Could not remove this repository.');
+    return;
+  }
+
+  if (repoId === id) {
+    repoId = null;
+    scanId = null;
+    document.getElementById('rescanBtn').style.display = 'none';
+    document.getElementById('reportBtn').style.display = 'none';
+    document.getElementById('scanStatusBanner').style.display = 'none';
+  }
+
+  await loadConnectedRepos();
+}
+
+function handleGithubReturn() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('github') === 'connected') {
+    const note = document.getElementById('githubFallbackNote');
+
+    note.style.display = 'block';
+    note.textContent = 'GitHub connected. Choose a repository below.';
+
+    if (token) {
+  // initializeRepositoryView() already loads the repositories.
+}
+
+    history.replaceState(
+      {},
+      document.title,
+      window.location.pathname
+    );
+  }
+}
+// Restore the logged-in session after page reloads or GitHub redirects.
+// Restore the logged-in session after page reloads or GitHub redirects.
+restoreSession();
+
+async function initializeRepositoryView() {
+  if (!token) return;
+
+  // Always show repositories that are already connected to this account.
+  await loadConnectedRepos();
+
+  // If GitHub is already installed/connected for this organization,
+  // load the repositories the GitHub App is authorized to access.
+  await loadGithubRepos();
+}
+
+initializeRepositoryView();
+handleGithubReturn();
+function setScanStatus(text, spinning) {
+  const banner = document.getElementById('scanStatusBanner');
+  banner.style.display = text ? 'flex' : 'none';
+  banner.innerHTML = (spinning ? '<div class="spinner"></div>' : '') + '<span>' + esc(text) + '</span>';
+}
+
+async function addAndScan() {
+  setScanStatus('Connecting repository...', true);
+  const repoUrl = document.getElementById('repoUrl').value;
+  let r = await fetch(api() + '/repositories', { method: 'POST', headers: headers(), body: JSON.stringify({ repo_url: repoUrl }) });
+  if (!r.ok) { setScanStatus('Failed to add repository.', false); return; }
+  const repo = await r.json();
+  repoId = repo.id;
+  document.getElementById('rescanBtn').style.display = 'block';
+    document.getElementById('reportBtn').style.display = 'none';
+  await runScan();
+}
+
+async function rescan() {
+  await runScan();
+}
+
+async function runScan() {
+  setScanStatus('Scanning repository — this can take a moment...', true);
+  let r = await fetch(api() + '/repositories/' + repoId + '/scan', { method: 'POST', headers: headers() });
+  if (!r.ok) { setScanStatus('Scan failed to start.', false); return; }
+  const scan = await r.json();
+  scanId = scan.id;
+  if (scan.status !== 'completed') {
+    setScanStatus('Scan status: ' + scan.status + (scan.error ? (' — ' + scan.error) : ''), false);
+    return;
+  }
+  setScanStatus('Scan complete.', false);
+  document.getElementById('reportBtn').style.display = 'block';
+  setTimeout(() => setScanStatus('', false), 2500);
+
+  await loadScore();
+  await loadFindings();
+  await loadFixMyScore();
+  await loadGraph();
+  await loadRegression();
+}
+
+function showImprovement(before, after) {
+  const banner = document.getElementById('improveBanner');
+  if (after === before) { banner.style.display = 'none'; return; }
+  const arrow = after > before ? '📈' : '📉';
+  banner.style.display = 'block';
+  banner.textContent = arrow + '  Safety Score: ' + before + ' → ' + after + ' / 100';
+}
+
+async function loadRegression() {
+  const r = await fetch(api() + '/scans/' + scanId + '/regression', { headers: headers() });
+  if (!r.ok) return;
+  const reg = await r.json();
+  const card = document.getElementById('regressionCard');
+  card.style.display = 'block';
+  if (!reg.has_baseline) {
+    card.innerHTML = '<div class="hint" style="margin:0;">First scan of this repo — no baseline to compare against yet.</div>';
+    return;
+  }
+  if (reg.previous_score !== reg.current_score) {
+    showImprovement(reg.previous_score, reg.current_score);
+  }
+  let html = '<div class="card-title">' + (reg.regression ? '🚨 Regression detected' : 'Baseline comparison') + '</div>';
+  html += '<div class="hint">Previous scan: ' + reg.previous_score + ' → This scan: ' + reg.current_score + '</div>';
+  if (reg.new_findings.length) {
+    html += reg.new_findings.map(f => '<div class="fix-item"><span>🔴 ' + esc(f.title) + '</span></div>').join('');
+  } else {
+    html += '<div class="hint" style="margin:0;">No new findings since the last scan.</div>';
+  }
+  card.innerHTML = html;
+}
+
+function buildChainsFromGraph(graph) {
+  // Group edges by capability_id -- reconstructing a path by following
+  // source->target adjacency across the WHOLE graph would incorrectly
+  // stitch together fragments from different capabilities wherever they
+  // share a generic intermediate node (e.g. "AI-generated decision").
+  // Each capability's own edges, in the order the API returns them, are
+  // already exactly that capability's real chain.
+  const byCapability = {};
+  graph.edges.forEach(e => {
+    const key = e.capability_id || ('_nocap_' + e.source);
+    (byCapability[key] = byCapability[key] || []).push(e);
+  });
+
+  const paths = Object.values(byCapability)
+    .filter(edges => edges.length > 0)
+    .map(edges => [edges[0].source, ...edges.map(e => e.target)]);
+
+  const seen = new Set();
+  return paths.filter(p => {
+    const k = p.join('→');
+    if (seen.has(k) || p.length < 2) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+async function loadGraph() {
+  const r = await fetch(api() + '/scans/' + scanId + '/graph', { headers: headers() });
+  if (!r.ok) return;
+  const graph = await r.json();
+  const card = document.getElementById('graphCard');
+  if (!graph.edges.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const chains = buildChainsFromGraph(graph).slice(0, 6);
+  document.getElementById('graphList').innerHTML = chains.map(chain => (
+    '<div class="chain">' +
+      chain.map((step, i) => (
+        '<div class="chain-step' + (i === chain.length - 1 ? ' leaf' : '') + '">' +
+          esc(step) + (i < chain.length - 1 ? '<span class="chain-arrow">↓</span>' : '') +
+        '</div>'
+      )).join('') +
+    '</div>'
+  )).join('') || '<div class="hint" style="margin:0;">Not enough data yet to show a capability chain.</div>';
+}
+
+async function downloadReport() {
+  if (!scanId) return;
+  const r = await fetch(api() + '/scans/' + scanId + '/report.pdf', { headers: headers() });
+  if (!r.ok) { alert('Could not generate the Safety Report.'); return; }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ai-safety-report.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function scoreColor(score) {
+  return score >= 90 ? 'var(--low)' :
+         score >= 80 ? 'var(--medium)' :
+         score >= 50 ? 'var(--high)' :
+                       'var(--critical)';
+}
+
+function renderDomainScore(prefix, data) {
+  const color = scoreColor(data.score);
+
+  document.getElementById(prefix + 'Score').textContent = data.score;
+  document.getElementById(prefix + 'Label').textContent = data.label;
+
+  document.getElementById(prefix + 'Score').style.color = color;
+  document.getElementById(prefix + 'Label').style.color = color;
+
+  document.getElementById(prefix + 'Counts').innerHTML =
+    '<span class="count-pill"><b>' + data.counts.CRITICAL + '</b> Critical</span>' +
+    '<span class="count-pill"><b>' + data.counts.HIGH + '</b> High</span>' +
+    '<span class="count-pill"><b>' + data.counts.MEDIUM + '</b> Medium</span>' +
+    '<span class="count-pill"><b>' + data.counts.LOW + '</b> Low</span>';
+}
+
+async function loadScore() {
+  if (!scanId) return;
+
+  const r = await fetch(
+    api() + '/scans/' + scanId + '/domain-scores',
+    { headers: headers() }
+  );
+
+  if (!r.ok) return;
+
+  const s = await r.json();
+
+  /*
+   * ----------------------------------------------------------
+   * Domain score cards
+   * ----------------------------------------------------------
+   */
+
+  document.getElementById('domainScoresCard').style.display = 'grid';
+
+  renderDomainScore('aiSafety', s.ai_safety);
+  renderDomainScore('projectSecurity', s.project_security);
+  renderDomainScore('overallDomain', s.overall);
+
+  /*
+   * ----------------------------------------------------------
+   * Existing large Overall score ring
+   *
+   * It now represents the SAME current-scan Overall score
+   * shown in the third card above.
+   * ----------------------------------------------------------
+   */
+
+  const overall = s.overall;
+
+  document.getElementById('scoreCard').style.display = 'block';
+
+  document.getElementById('scoreNum').textContent = overall.score;
+  document.getElementById('scoreLabel').textContent = overall.label;
+
+  const ringColor = scoreColor(overall.score);
+
+  const ring = document.getElementById('scoreRing');
+
+  ring.style.setProperty('--pct', overall.score);
+  ring.style.setProperty('--ring-color', ringColor);
+
+  document.getElementById('scoreLabel').style.color = ringColor;
+
+  document.getElementById('scoreCounts').innerHTML =
+    '<span class="count-pill"><b>' + overall.counts.CRITICAL + '</b> Critical</span>' +
+    '<span class="count-pill"><b>' + overall.counts.HIGH + '</b> High</span>' +
+    '<span class="count-pill"><b>' + overall.counts.MEDIUM + '</b> Medium</span>' +
+    '<span class="count-pill"><b>' + overall.counts.LOW + '</b> Low</span>';
+
+  /*
+   * ----------------------------------------------------------
+   * Unscored findings
+   * ----------------------------------------------------------
+   */
+
+  const unscoredEl = document.getElementById('unscoredNote');
+
+  if (overall.unscored_count > 0) {
+    unscoredEl.style.display = 'block';
+
+    unscoredEl.textContent =
+      '+ ' +
+      overall.unscored_count +
+      ' unscored potential-capability lead(s) — see all findings below.';
+  } else {
+    unscoredEl.style.display = 'none';
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * Main concern
+   * ----------------------------------------------------------
+   */
+
+  const c = overall.counts;
+
+  const mainConcernEl =
+    document.getElementById('mainConcern');
+
+  const tiers = [
+    ['CRITICAL', c.CRITICAL],
+    ['HIGH', c.HIGH],
+    ['MEDIUM', c.MEDIUM],
+    ['LOW', c.LOW]
+  ];
+
+  const worst = tiers.find(t => t[1] > 0);
+
+  const total =
+    c.CRITICAL +
+    c.HIGH +
+    c.MEDIUM +
+    c.LOW;
+
+  if (worst) {
+
+    mainConcernEl.style.display = 'block';
+
+    mainConcernEl.innerHTML =
+      '<b>Main concern:</b> ' +
+      total +
+      ' scored finding' +
+      (total === 1 ? '' : 's') +
+      ' detected (' +
+      worst[1] +
+      ' at ' +
+      worst[0] +
+      ')';
+
+  } else {
+
+    mainConcernEl.style.display = 'block';
+
+    mainConcernEl.innerHTML =
+      '<b>No scored risks detected in this scan.</b>';
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * Improvement banner
+   * ----------------------------------------------------------
+   *
+   * Compare current scan Overall score with previous score
+   * seen in this browser session.
+   */
+
+  if (
+    lastScoreSeen !== null &&
+    lastScoreSeen !== overall.score
+  ) {
+    showImprovement(
+      lastScoreSeen,
+      overall.score
+    );
+  }
+
+  lastScoreSeen = overall.score;
+}
+
+function renderCapabilities(findings) {
+  const card = document.getElementById('capabilitiesCard');
+  const open = findings.filter(f => f.scored && f.status !== 'resolved');
+  if (!open.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const byCategory = {};
+  open.forEach(f => {
+    const cat = f.category;
+    if (!byCategory[cat]) byCategory[cat] = { count: 0, worst: 'LOW' };
+    byCategory[cat].count += 1;
+    if (SEV_RANK[f.severity] > SEV_RANK[byCategory[cat].worst]) byCategory[cat].worst = f.severity;
+  });
+
+  const cats = Object.keys(byCategory).sort((a, b) => SEV_RANK[byCategory[b].worst] - SEV_RANK[byCategory[a].worst]);
+  document.getElementById('capabilityGrid').innerHTML = cats.map(cat => {
+    const info = byCategory[cat];
+    return '<div class="capability-chip">' +
+      '<span class="cap-dot" style="background:' + SEV_COLOR[info.worst] + '"></span>' +
+      '<span class="cap-label">' + (CATEGORY_LABELS[cat] || cat) + '</span>' +
+      '<span class="cap-count">' + info.count + ' finding' + (info.count === 1 ? '' : 's') + '</span>' +
+    '</div>';
+  }).join('');
+}
+
+let activeFindingFilter = 'all';
+
+function isPotentialLeadFinding(finding) {
+  return (
+    finding.scored === false ||
+    finding.status === 'potential' ||
+    finding.category === 'POTENTIAL_CAPABILITY' ||
+    (
+      typeof finding.title === 'string' &&
+      finding.title.toLowerCase().includes('potential capability')
+    )
+  );
+}
+
+function getFindingDomain(finding) {
+  if (finding.finding_domain === 'AI_SAFETY') {
+    return 'AI_SAFETY';
+  }
+
+  if (finding.finding_domain === 'PROJECT_SECURITY') {
+    return 'PROJECT_SECURITY';
+  }
+
+  return null;
+}
+
+function getFindingDomainLabel(finding) {
+
+  if (isPotentialLeadFinding(finding)) {
+    return 'Potential Lead';
+  }
+
+  if (finding.finding_domain === 'AI_SAFETY') {
+    return 'AI Safety';
+  }
+
+  if (finding.finding_domain === 'PROJECT_SECURITY') {
+    return 'Project Security';
+  }
+
+  return 'Unclassified';
+}
+
+function findingMatchesFilter(finding, filter) {
+
+  if (filter === 'all') {
+    return true;
+  }
+
+  if (filter === 'LEADS') {
+    return isPotentialLeadFinding(finding);
+  }
+
+  if (filter === 'AI_SAFETY') {
+    return (
+      finding.finding_domain === 'AI_SAFETY' &&
+      !isPotentialLeadFinding(finding)
+    );
+  }
+
+  if (filter === 'PROJECT_SECURITY') {
+    return (
+      finding.finding_domain === 'PROJECT_SECURITY' &&
+      !isPotentialLeadFinding(finding)
+    );
+  }
+
+  return true;
+}
+
+function setFindingFilter(filter) {
+
+  activeFindingFilter = filter;
+
+  document
+    .querySelectorAll('[data-finding-filter]')
+    .forEach(function(button) {
+
+      button.classList.toggle(
+        'active',
+        button.getAttribute('data-finding-filter') === filter
+      );
+
+    });
+
+  renderFilteredFindings();
+}
+
+function updateFindingSummary(findings) {
+
+  const summary = document.getElementById('findingSummary');
+
+  if (!summary) {
+    return;
+  }
+
+  const scored = findings.filter(function(finding) {
+    return finding.scored !== false;
+  }).length;
+
+  const leads = findings.filter(function(finding) {
+    return isPotentialLeadFinding(finding);
+  }).length;
+
+  const aiSafety = findings.filter(function(finding) {
+    return (
+      finding.finding_domain === 'AI_SAFETY' &&
+      !isPotentialLeadFinding(finding)
+    );
+  }).length;
+
+  const projectSecurity = findings.filter(function(finding) {
+    return (
+      finding.finding_domain === 'PROJECT_SECURITY' &&
+      !isPotentialLeadFinding(finding)
+    );
+  }).length;
+
+  summary.innerHTML =
+    '<strong>' + findings.length + '</strong> shown · ' +
+    '<strong>' + scored + '</strong> scored · ' +
+    '<strong>' + leads + '</strong> potential leads · ' +
+    '<strong>' + aiSafety + '</strong> AI Safety · ' +
+    '<strong>' + projectSecurity + '</strong> Project Security';
+}
+
+function renderFilteredFindings() {
+
+  const container =
+    document.getElementById('findingsList');
+
+  if (!container) {
+    return;
+  }
+
+  const filtered = allFindingsCache.filter(function(finding) {
+
+    return findingMatchesFilter(
+      finding,
+      activeFindingFilter
+    );
+
+  });
+
+  updateFindingSummary(filtered);
+
+  if (!filtered.length) {
+
+    container.innerHTML =
+      '<div class="empty-state">' +
+        '<div class="big">✓</div>' +
+        'No findings match this filter.' +
+      '</div>';
+
+    return;
+  }
+
+  container.innerHTML =
+    filtered
+      .map(function(finding) {
+        return renderFinding(finding);
+      })
+      .join('');
+}
+async function loadFindings() {
+  const r = await fetch(api() + '/scans/' + scanId + '/findings', { headers: headers() });
+  if (!r.ok) return;
+  const findings = await r.json();
+  allFindingsCache = findings;
+  document.getElementById('findingsCard').style.display = 'block';
+  document.getElementById('allFindingsSummary').textContent =
+    'All findings (' + findings.length + ')';
+
+  activeFindingFilter = 'all';
+
+  document
+    .querySelectorAll('[data-finding-filter]')
+    .forEach(function(button) {
+      button.classList.toggle(
+        'active',
+        button.getAttribute('data-finding-filter') === 'all'
+      );
+    });
+
+  renderFilteredFindings();
+
+  renderCapabilities(findings);
+  renderTopRisks(findings);
+}
+
+function renderTopRisks(findings) {
+  const top = findings
+    .filter(f => f.scored && f.status !== 'resolved')
+    .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])
+    .slice(0, 3);
+
+  const card = document.getElementById('topRisksCard');
+  card.style.display = 'block';
+  if (!top.length) {
+    document.getElementById('topRisksList').innerHTML = '<div class="empty-state"><div class="big">✅</div>No open scored risks right now.</div>';
+    return;
+  }
+  document.getElementById('topRisksList').innerHTML = top.map(f => (
+    '<div class="top-risk sev-' + f.severity + '" id="toprisk-' + f.id + '" onclick="toggleTopRiskDetail(\'' + f.id + '\')">' +
+      '<div class="top-risk-head">' +
+        '<span class="sev-badge ' + f.severity + '">' + f.severity + '</span>' +
+        '<span class="chevron">â–¶</span>' +
+      '</div>' +
+      '<div class="top-risk-title">' + esc(f.title) + '</div>' +
+      '<div class="top-risk-loc">' + esc(f.file_path) + ':' + f.line_number + '</div>' +
+      '<div id="topdetail-' + f.id + '" style="display:none;" class="detail-box"></div>' +
+    '</div>'
+  )).join('');
+}
+
+function toggleTopRiskDetail(findingId) {
+  const box = document.getElementById('topdetail-' + findingId);
+  const card = document.getElementById('toprisk-' + findingId);
+  if (!box) return;
+  const isOpen = box.style.display !== 'none';
+  if (isOpen) { box.style.display = 'none'; card.classList.remove('open'); return; }
+  const f = allFindingsCache.find(x => x.id === findingId);
+  if (!f) return;
+  card.classList.add('open');
+  box.style.display = 'block';
+  box.innerHTML =
+    (f.snippet ? '<div class="code">' + esc(f.snippet) + '</div>' : '') +
+    '<div class="why-line">' + esc(f.recommendation) + '</div>' +
+    (f.evidence && f.evidence.length ? '<ul class="evidence-list">' + f.evidence.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul>' : '') +
+    '<div class="detail-actions">' +
+      '<button class="secondary" onclick="event.stopPropagation(); resolveFinding(\'' + f.id + '\')" ' + (f.status==='resolved'?'disabled':'') + '>Mark resolved</button>' +
+      '<button onclick="event.stopPropagation(); showFix(\'' + f.id + '\', \'fix-topdetail-' + f.id + '\')">Suggest a fix</button>' +
+    '</div>' +
+    '<div id="fix-topdetail-' + f.id + '"></div>';
+}
+
+function renderFinding(f) {
+  return (
+    '<div class="finding" id="finding-' + f.id + '">' +
+      '<span class="sev-badge ' + f.severity + '">' + f.severity + '</span> ' +
+      '<span class="tag">' + f.category + '</span>' +
+      ' <span class="finding-domain-badge ' +
+        (isPotentialLeadFinding(f) ? 'lead' :
+          f.finding_domain === 'AI_SAFETY' ? 'ai' : 'security') +
+        '">' +
+        esc(getFindingDomainLabel(f)) +
+      '</span>' +
+      (f.ai_controlled === true ? ' <span class="tag">AI-controlled</span>' : '') +
+      (f.ai_controlled === false ? ' <span class="tag">no data-flow to AI</span>' : '') +
+      (f.scored === false ? ' <span class="tag">potential capability, not scored</span>' : '') +
+      (f.status === 'resolved' ? ' <span class="tag">resolved</span>' : '') +
+      '<div class="top-risk-title" style="margin-top:8px;">' + esc(f.title) + '</div>' +
+      '<div class="top-risk-loc">' + esc(f.file_path) + ':' + f.line_number + ' &middot; confidence ' + (f.confidence*100).toFixed(0) + '%</div>' +
+      (f.snippet ? '<div class="code">' + esc(f.snippet) + '</div>' : '') +
+      '<ul class="evidence-list">' + (f.evidence||[]).map(e => '<li>' + esc(e) + '</li>').join('') + '</ul>' +
+      '<div class="why-line">💡 ' + esc(f.recommendation) + '</div>' +
+      '<div class="detail-actions">' +
+        '<button class="secondary" onclick="resolveFinding(\'' + f.id + '\')" ' + (f.status==='resolved'?'disabled':'') + '>Mark resolved</button>' +
+        '<button onclick="showFix(\'' + f.id + '\', \'fix-' + f.id + '\')">Suggest a fix</button>' +
+      '</div>' +
+      '<div id="fix-' + f.id + '"></div>' +
+    '</div>'
+  );
+}
+
+async function loadFixMyScore() {
+  const r = await fetch(api() + '/scans/' + scanId + '/potential-score', { headers: headers() });
+  if (!r.ok) return;
+  const data = await r.json();
+  const card = document.getElementById('fixCard');
+  card.style.display = 'block';
+  document.getElementById('potentialScore').textContent = data.potential_score + ' / 100';
+  document.getElementById('fixList').innerHTML = data.fixes.length
+    ? data.fixes.map(f => '<div class="fix-item"><span>' + esc(f.title) + '</span><span class="points">+' + f.points + '</span></div>').join('')
+    : '<div class="empty-state" style="padding:8px 0;">Nothing to fix — you\'re already at your potential score. 🎉</div>';
+}
+
+async function resolveFinding(id) {
+  await fetch(api() + '/findings/' + id, { method: 'PATCH', headers: headers(), body: JSON.stringify({ status: 'resolved' }) });
+  await loadScore();
+  await loadFindings();
+  await loadFixMyScore();
+}
+
+async function showFix(findingId, boxId) {
+  const el = document.getElementById(boxId);
+  el.style.display = 'block';
+  el.innerHTML = '<div class="hint" style="margin:8px 0 0;">Generating suggested fix...</div>';
+  const r = await fetch(api() + '/findings/' + findingId + '/fix', { headers: headers() });
+  if (!r.ok) { el.innerHTML = '<div class="error">Could not generate a fix.</div>'; return; }
+  const fix = await r.json();
+  el.innerHTML =
+    '<div class="fix-cta">' +
+      '<div style="font-weight:600; margin-bottom:6px;">Suggested fix</div>' +
+      esc(fix.explanation) +
+      '<div class="code">' + esc(fix.diff) + '</div>' +
+      '<div class="hint" style="margin:6px 0 10px;">' + esc(fix.note) + '</div>' +
+      '<button onclick="event.stopPropagation(); applyFix(\'' + findingId + '\', \'' + boxId + '\')">Apply suggested patch &amp; rescan</button>' +
+    '</div>';
+}
+
+async function applyFix(findingId, boxId) {
+  const box = document.getElementById(boxId);
+  box.innerHTML += '<div class="hint" style="margin:8px 0 0;">Applying and rescanning...</div>';
+  const r = await fetch(api() + '/findings/' + findingId + '/apply-fix', { method: 'POST', headers: headers() });
+  const result = await r.json();
+  if (!r.ok) {
+    box.innerHTML += '<div class="error">' + esc(result.detail || 'Could not apply fix (only works for local/file:// repos).') + '</div>';
+    return;
+  }
+  box.innerHTML += '<div class="why-line">✅ Applied.</div>';
+  scanId = result.rescan_id;
+  showImprovement(result.score_before, result.score_after);
+  await loadScore();
+  await loadFindings();
+  await loadFixMyScore();
+  await loadGraph();
+  await loadRegression();
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const auth = document.getElementById('authCard');
+  const mount = document.getElementById('auth-mount');
+  if (auth && mount) mount.appendChild(auth);
+});
+</script>
+
+</body>
+</html>

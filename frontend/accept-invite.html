@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head>
+<script src="config.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Accept invitation — SecureAI</title>
+<style>
+:root{--ink:#171923;--muted:#687083;--purple:#7965e8;--line:#e5e0d7;--cream:#f5f3ee;--navy:#171b27;--panel:#222939;--white:#fff;--red:#b42332}*{box-sizing:border-box}body{margin:0;background:var(--cream);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);min-height:100vh}.top{height:76px;max-width:1240px;margin:auto;padding:0 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;gap:12px;align-items:center;font-weight:850;letter-spacing:-.04em}.mark{background:var(--navy);color:#fff;width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:20px}.brand small{display:block;font-size:9px;letter-spacing:.17em;color:#7d8391;margin-top:3px}.top a{color:var(--purple);font-weight:700;text-decoration:none;font-size:14px}.layout{max-width:1120px;margin:0 auto;padding:70px 28px;display:grid;grid-template-columns:1.1fr .9fr;gap:80px;align-items:center;min-height:calc(100vh - 76px)}.eyebrow{color:var(--purple);font-size:11px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}.pitch h1{font-size:clamp(42px,5vw,68px);line-height:1.02;letter-spacing:-.065em;margin:20px 0}.pitch h1 span{color:var(--purple)}.pitch p{color:var(--muted);font-size:17px;line-height:1.8;max-width:490px}.points{margin-top:28px;color:#596173;font-size:13px}.panel{background:var(--navy);color:#f7f7fb;padding:34px;border:1px solid #30394b;border-radius:24px;box-shadow:0 25px 70px #1c20301c}.pill{display:inline-block;border:1px solid #334d76;color:#8ebcff;background:#1d2b42;padding:8px 13px;border-radius:99px;font-size:11px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}.panel h2{font-size:27px;letter-spacing:-.04em;margin:24px 0 8px}.sub{color:#aeb8c9;font-size:13px;line-height:1.6;margin:0 0 24px}label{display:block;font-size:12px;font-weight:750;color:#c3cada;margin:16px 0 8px}input{width:100%;padding:15px 16px;border:1px solid #344056;border-radius:13px;background:#0f1623;color:#fff;font:inherit;font-size:14px;outline:none}input:focus{border-color:#8878ff;box-shadow:0 0 0 3px #8878ff25}button{width:100%;margin-top:22px;padding:15px;border:0;border-radius:13px;background:linear-gradient(110deg,#4c8ef7,#6c60e9);color:white;font-weight:800;font-size:14px;cursor:pointer}button:disabled{opacity:.65;cursor:wait}.error,.success{display:none;margin-top:16px;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}.error{background:#48252e;border:1px solid #743541;color:#ffb8bd}.success{background:#173c35;border:1px solid #2c665a;color:#b5f2dc}.switch{text-align:center;color:#aeb8c9;font-size:13px;margin:20px 0 0}.switch a{color:#b6aaff;text-decoration:none;font-weight:750}.hint{color:#7f8ca1;font-size:11px;line-height:1.5;margin-top:18px}@media(max-width:800px){.layout{grid-template-columns:1fr;gap:32px;padding:44px 20px}.pitch h1{font-size:46px}.top{padding:0 20px}.panel{padding:25px}}
+</style></head><body>
+<header class="top"><div class="brand"><div class="mark">S</div><div>secureai.<small>AI SECURITY POSTURE</small></div></div><a href="index.html">← Back to website</a></header>
+<main class="layout"><section class="pitch"><div class="eyebrow">YOU'RE INVITED</div><h1>Join your<br><span>team's workspace.</span></h1><p>Review connected repositories, inspect security findings, and make informed decisions about your AI-enabled code together.</p><div class="points">✓ &nbsp; Shared findings &nbsp; · &nbsp; Role-based access</div></section>
+<section class="panel"><div class="pill">Invitation</div><h2 id="invTitle">Checking your invitation…</h2><p class="sub" id="invSub">One moment.</p>
+<form id="inviteForm" style="display:none" autocomplete="off"><label for="email">Email</label><input id="email" name="email" type="email" readonly><label for="password">Choose a password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters" required><label for="password2">Confirm password</label><input id="password2" name="password2" type="password" autocomplete="new-password" minlength="12" placeholder="Repeat the password" required><button id="submitBtn" type="submit">Create my account</button></form>
+<div id="existingBox" style="display:none"><p class="sub" id="existingMsg"></p><button id="existingBtn" type="button">Log in to join</button><button id="existingAlt" type="button" style="display:none;margin-top:10px;background:transparent;border:1px solid rgba(255,255,255,.25)">Log out</button></div>
+<div id="error" class="error" role="alert"></div><div id="success" class="success" role="status"></div>
+<p class="switch">Already have an account? <a href="login.html">Log in</a></p><p class="hint">Your password is sent only to the configured SecureAI API. Never share your password or access token.</p></section></main>
+
+<script>
+(()=>{
+const form=document.getElementById('inviteForm'),btn=document.getElementById('submitBtn'),err=document.getElementById('error'),ok=document.getElementById('success');
+const title=document.getElementById('invTitle'),sub=document.getElementById('invSub');
+const params=new URLSearchParams(location.search);
+const isLocalHost=(location.hostname==='127.0.0.1'||location.hostname==='localhost'||location.protocol==='file:');
+const apiOverride=isLocalHost?params.get('api'):null;
+const API_BASE=(apiOverride||(isLocalHost?'http://127.0.0.1:8001':(window.SECUREAI_API_BASE||''))).replace(/\/$/,'');
+function show(el,msg){el.textContent=msg;el.style.display='block'}
+const m=location.hash.match(/token=([A-Za-z0-9_-]{20,100})/);
+let token=m?m[1]:null;
+if(!token){try{token=sessionStorage.getItem('secureai_pending_invite')||null}catch(e){}}   // set before sending someone to log in
+async function post(path,body,auth){
+  const headers={'Content-Type':'application/json','Accept':'application/json'};
+  if(auth){const t=sessionStorage.getItem('secureai_access_token');if(t)headers['Authorization']='Bearer '+t}
+  const res=await fetch(API_BASE+path,{method:'POST',headers,body:JSON.stringify(body)});
+  let data={};try{data=await res.json()}catch{}
+  return {res,data};
+}
+function bad(msg){title.textContent='Invitation unavailable';sub.textContent=msg||'This invitation link is invalid or has expired. Ask the person who invited you to send a new one.';form.style.display='none';document.getElementById('existingBox').style.display='none'}
+function enterWorkspace(d){
+  try{sessionStorage.removeItem('secureai_pending_invite')}catch(e){}
+  if(d.organization_id){sessionStorage.setItem('secureai_organization_id',d.organization_id);try{const raw=sessionStorage.getItem('aisc_session');if(raw){const o=JSON.parse(raw);o.orgId=d.organization_id;sessionStorage.setItem('aisc_session',JSON.stringify(o))}}catch(e){}}
+  show(ok,'Welcome to '+(d.organization_name||'the workspace')+'. Opening it…');location.href='dashboard.html';
+}
+async function existingAccount(info){
+  const box=document.getElementById('existingBox'),msg=document.getElementById('existingMsg'),btn2=document.getElementById('existingBtn'),alt=document.getElementById('existingAlt');
+  title.textContent='Join '+info.organization_name;sub.textContent='You were invited as '+(info.role==='admin'?'an admin':'a member')+'.';
+  box.style.display='block';form.style.display='none';
+  const sess=sessionStorage.getItem('secureai_access_token');
+  const login=()=>{try{sessionStorage.setItem('secureai_pending_invite',token)}catch(e){}location.href='login.html'};
+  if(!sess){msg.textContent=info.email+' already has a SecureAI account. Log in with it to join '+info.organization_name+'. You keep your own workspace and can switch between them.';btn2.textContent='Log in to join';btn2.onclick=login;return}
+  let who=null;
+  try{const r=await fetch(API_BASE+'/auth/me',{headers:{'Authorization':'Bearer '+sess}});if(r.ok)who=(await r.json()).email}catch(e){}
+  if(who&&who.toLowerCase()===info.email.toLowerCase()){
+    msg.textContent='You are logged in as '+who+'. Join '+info.organization_name+' now? Your own workspace stays available from the workspace menu.';
+    btn2.textContent='Join '+info.organization_name;
+    btn2.onclick=async()=>{err.style.display='none';btn2.disabled=true;
+      try{const {res,data}=await post('/team/invitations/accept-existing',{token},true);if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not accept the invitation.');enterWorkspace(data)}
+      catch(e2){show(err,e2.message);btn2.disabled=false}};
+  }else{
+    msg.textContent=who?('You are logged in as '+who+', but this invitation is for '+info.email+'. Log out and log in as '+info.email+' to accept it.'):('Log in as '+info.email+' to accept this invitation.');
+    btn2.textContent='Log in as '+info.email;btn2.onclick=()=>{['secureai_access_token','secureai_organization_id','secureai_user_id','aisc_session'].forEach(k=>sessionStorage.removeItem(k));login()};
+  }
+}
+if(!token){bad()}else{
+  post('/team/invitations/preview',{token}).then(({res,data})=>{
+    if(!res.ok){bad(typeof data.detail==='string'?data.detail:null);return}
+    if(data.account_exists){existingAccount(data);return}
+    title.textContent='Join '+data.organization_name;
+    sub.textContent='You were invited as '+(data.role==='admin'?'an admin':'a member')+'. Choose a password to create your account.';
+    document.getElementById('email').value=data.email;form.style.display='block';document.getElementById('password').focus();
+  }).catch(()=>bad('Could not reach the SecureAI API at '+API_BASE+'.'));
+}
+form.addEventListener('submit',async e=>{
+  e.preventDefault();err.style.display='none';
+  const pw=document.getElementById('password').value;
+  if(pw.length<12){show(err,'Use at least 12 characters.');return}
+  if(pw!==document.getElementById('password2').value){show(err,'The two passwords do not match.');return}
+  btn.disabled=true;btn.textContent='Creating account…';
+  try{
+    const {res,data}=await post('/team/invitations/accept',{token,password:pw});
+    if(res.status===429)throw new Error('Too many attempts. Wait a few minutes and try again.');
+    if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not accept the invitation (HTTP '+res.status+').');
+    try{sessionStorage.removeItem('secureai_pending_invite')}catch(e3){}sessionStorage.setItem('secureai_access_token',data.access_token);
+    if(data.organization_id)sessionStorage.setItem('secureai_organization_id',data.organization_id);
+    if(data.user_id)sessionStorage.setItem('secureai_user_id',data.user_id);
+    try{const ow=(data.organization_id||'')+'|'+(data.user_id||'');['secureai_scan_history','secureai-me','secureai-workspace','secureai-profile'].forEach(k=>localStorage.removeItem(k));localStorage.setItem('secureai_history_owner',ow)}catch(e2){}
+    show(ok,'Welcome aboard. Opening your workspace…');location.href='dashboard.html';
+  }catch(e2){show(err,e2 instanceof TypeError?'Could not reach the SecureAI API at '+API_BASE+'.':e2.message)}
+  finally{btn.disabled=false;btn.textContent='Create my account'}
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+.git
+.gitignore
+
+.env
+.env.*
+!.env.example
+
+secrets/
+*.pem
+*.key
+*.crt
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+*.db
+*.sqlite
+*.sqlite3
+
+node_modules/
+
+.vscode/
+.idea/
+
+*.log
+tmp/
+temp/
+# Local backups and database dumps
+backups/
+_local_backups/
+*.sql
+*.dump
+
+# Local diagnostics
+openapi-diagnostic.json
+
+# Old copies of edited files must never ship in the image
+**/*.bak
+**/*backup*
+**/*.step1-backup
+**/*.orig
+
+# Never part of the image
+.env.production
+docs
+dist
+.github

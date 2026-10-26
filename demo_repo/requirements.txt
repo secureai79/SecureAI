@@ -1,0 +1,5 @@
+openai
+anthropic
+langchain
+stripe
+psycopg2-binary

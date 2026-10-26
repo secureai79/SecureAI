@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://ci:ci@127.0.0.1:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.lock
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          cd backend && npm install --no-save --no-audit --no-fund typescript@5.9.3
+      - name: Run tests
+        run: cd backend && python -m pytest -q
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: No secrets, dumps or backups in the repository
+        run: python scripts/check_repo_clean.py
+      - name: Dependency vulnerabilities
+        run: |
+          pip install pip-audit bandit
+          pip-audit -r backend/requirements.lock --disable-pip --no-deps
+      - name: Static analysis of the API (medium severity and up)
+        run: bandit -q -r backend/app -ll -x backend/app/scanner
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build for production (fails if legal placeholders are unfilled)
+        run: >
+          python scripts/build_frontend.py --api https://api.example.com --strict
+          --company "CI" --support-email ci@example.com --address "CI" --jurisdiction "CI"
+          --hosting-region "CI" --backend-host "CI" --backup-retention "30 days" --liability-cap "CI"
+      - name: Every script in every page must parse
+        run: |
+          node -e "
+          const fs=require('fs');let bad=0;
+          for (const f of fs.readdirSync('dist').filter(x=>x.endsWith('.html'))) {
+            const s=fs.readFileSync('dist/'+f,'utf8');
+            for (const m of s.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+              try { new Function(m[1]); } catch (e) { bad++; console.log(f, e.message); }
+            }
+          }
+          for (const f of fs.readdirSync('dist').filter(x=>x.endsWith('.js'))) {
+            try { new Function(fs.readFileSync('dist/'+f,'utf8')); } catch (e) { bad++; console.log(f, e.message); }
+          }
+          process.exit(bad ? 1 : 0)"
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (not pushed)
+        run: docker build -t secureai-api:ci .

@@ -1,0 +1,101 @@
+name: "AI Safety Check"
+description: "Scan a repository for AI-agent risks (prompt injection, dangerous AI-controlled actions, project security) and enforce a policy-as-code gate on pull requests. Runs entirely inside your runner: your code is never uploaded."
+author: "AI Safety Checkup"
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  path:
+    description: "Directory to scan, relative to the workspace."
+    default: "."
+  policy:
+    description: "Policy file (default: .aisafety.yml in the scanned directory, else built-in defaults: fail on HIGH or worse)."
+    default: ""
+  fail-on:
+    description: "Override the policy threshold: critical | high | medium | low | none."
+    default: ""
+  base-ref:
+    description: "Git ref to compare against. 'auto' uses the PR's base branch; empty disables comparison (all findings can block)."
+    default: "auto"
+  comment:
+    description: "Post/update a summary comment on the pull request (needs pull-requests: write)."
+    default: "true"
+  sarif:
+    description: "Upload SARIF to GitHub code scanning (needs security-events: write)."
+    default: "true"
+  javascript:
+    description: "Install the TypeScript parser so JavaScript/TypeScript files get full analysis."
+    default: "false"
+  python-version:
+    description: "Python version used to run the scanner."
+    default: "3.12"
+  github-token:
+    description: "Token used to post the PR comment."
+    default: ${{ github.token }}
+
+outputs:
+  result:
+    description: "passed or failed"
+    value: ${{ steps.scan.outputs.result }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install scanner dependencies
+      shell: bash
+      run: python -m pip install --quiet "pyyaml>=6.0"
+
+    - name: Install TypeScript parser (optional)
+      if: ${{ inputs.javascript == 'true' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: npm install --no-save --no-audit --no-fund --prefix "$ACTION_PATH/backend" typescript@5.9.3
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        # Inputs are passed through the environment and quoted below - never interpolated into the
+        # script text - so a crafted input or branch name cannot inject shell commands.
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_POLICY: ${{ inputs.policy }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_BASE_REF: ${{ inputs.base-ref }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+        args=(scan "$INPUT_PATH" --github-annotations --sarif aisafety.sarif --markdown aisafety.md --json aisafety.json)
+        [ -n "$INPUT_POLICY" ] && args+=(--policy "$INPUT_POLICY")
+        [ -n "$INPUT_FAIL_ON" ] && args+=(--fail-on "$INPUT_FAIL_ON")
+        base="$INPUT_BASE_REF"
+        if [ "$base" = "auto" ]; then
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
+            if git fetch --no-tags --depth=1 origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" 2>/dev/null; then
+              base="origin/${GITHUB_BASE_REF}"
+            else
+              echo "::warning::Could not fetch the base branch; scanning without comparison."
+            fi
+          fi
+        fi
+        [ -n "$base" ] && args+=(--base-ref "$base")
+        if [ "$INPUT_COMMENT" = "true" ] && [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then args+=(--comment); fi
+        PYTHONPATH="$ACTION_PATH/backend" python -m aisafety "${args[@]}"
+        code=$?
+        if [ "$code" -eq 0 ]; then echo "result=passed" >> "$GITHUB_OUTPUT"; else echo "result=failed" >> "$GITHUB_OUTPUT"; fi
+        exit "$code"
+
+    - name: Upload SARIF to code scanning
+      if: ${{ always() && inputs.sarif == 'true' && hashFiles('aisafety.sarif') != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: aisafety.sarif
+        category: ai-safety-checkup

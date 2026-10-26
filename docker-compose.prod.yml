@@ -1,0 +1,61 @@
+# Production stack for a single server (any VPS): API + Caddy (automatic HTTPS). The database is Neon, so there is no db service.
+#
+#   cp .env.production.example .env.production      # fill it in
+#   export API_DOMAIN=api.example.com                 # DNS A/AAAA record must already point at this server
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Only Caddy publishes ports; the API is reachable solely through it (so TRUSTED_PROXY_COUNT=1 is correct).
+services:
+  app:
+    build: .
+    env_file:
+      - .env.production
+    environment:
+      SCAN_WORKDIR: /work
+      ALLOW_LOCAL_REPOS: "false"
+      SCAN_DEBUG_LOG: "false"
+      GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key.pem
+    expose:
+      - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 3g
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    volumes:
+      - scan_work:/work
+      # GitHub App private key on the host (delete this mount and set GITHUB_APP_PRIVATE_KEY instead if you prefer an env var)
+      - type: bind
+        source: ${GITHUB_APP_PRIVATE_KEY_PATH:-./secrets/github_app_private_key.pem}
+        target: /run/secrets/github_app_private_key.pem
+        read_only: true
+        bind:
+          create_host_path: false
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN, e.g. api.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  scan_work:
+  caddy_data:
+  caddy_config:

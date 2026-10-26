@@ -1,0 +1,36 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+pydantic[email]>=2.6
+PyJWT>=2.7           # deliberately not python-jose -- PyJWT is a far more
+                     # commonly pre-available package, less likely to be
+                     # missing in a constrained install environment
+python-multipart>=0.0.9
+httpx>=0.27
+cryptography>=42.0
+reportlab>=4.0
+PyYAML>=6.0         # .aisafety.yml policies for the offline CLI / GitHub Action
+
+# Two-factor authentication: QR code for authenticator apps (pure Python, no dependencies).
+segno>=1.6
+
+# GitHub OAuth token storage uses Fernet authenticated encryption.
+
+# Optional: only needed if you set ANTHROPIC_API_KEY to enable stage-5 LLM refinement
+anthropic>=0.34
+
+# Optional: only needed for Postgres in production (swap DATABASE_URL)
+psycopg[binary]>=3.1
+
+# Dev/test only
+pytest>=8.0
+# No mocking library dependency: tests use httpx.MockTransport (built into
+# httpx, already a hard dependency above) via backend/mock_http.py instead
+# of a separate package like respx.
+
+# JavaScript/TypeScript deep analysis runs through the TypeScript compiler API
+# via Node.js. Install TypeScript in the scanner runtime (npm install -g
+# typescript, or set TYPESCRIPT_MODULE_PATH to a project-local installation).
+
+# Optional error monitoring (active only when SENTRY_DSN is set)
+sentry-sdk>=2.0
