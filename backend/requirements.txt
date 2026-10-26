@@ -9,7 +9,7 @@ python-multipart>=0.0.9
 httpx>=0.27
 cryptography>=42.0
 reportlab>=4.0
-PyYAML>=6.0         # .aisafety.yml policies for the offline CLI / GitHub Action
+PyYAML>=6.0.3         # .aisafety.yml policies for the offline CLI / GitHub Action
 
 # Two-factor authentication: QR code for authenticator apps (pure Python, no dependencies).
 segno>=1.6
