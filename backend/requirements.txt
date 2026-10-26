@@ -2,7 +2,7 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 sqlalchemy>=2.0
 pydantic[email]>=2.6
-PyJWT>=2.7           # deliberately not python-jose -- PyJWT is a far more
+PyJWT>=2.15.1           # deliberately not python-jose -- PyJWT is a far more
                      # commonly pre-available package, less likely to be
                      # missing in a constrained install environment
 python-multipart>=0.0.9
