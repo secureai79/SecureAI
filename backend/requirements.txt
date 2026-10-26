@@ -1,5 +1,5 @@
 fastapi>=0.110
-uvicorn[standard]>=0.29
+uvicorn[standard]>=0.54.0
 sqlalchemy>=2.0
 pydantic[email]>=2.6
 PyJWT>=2.7           # deliberately not python-jose -- PyJWT is a far more
