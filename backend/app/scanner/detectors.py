@@ -214,7 +214,25 @@ def detect_dangerous_functions(text: str) -> list[dict]:
                 continue
 
             if not exact_match and not custom_capability_name:
+
                 continue
+
+                        # Ambiguous operation names require stronger object context.
+            if exact_match and keyword in {"push", "merge", "deploy", "terminate"}:
+                infrastructure_objects = {
+                    "ec2", "ec2_client", "ecs", "eks", "k8s",
+                    "kubernetes", "docker", "terraform", "helm",
+                    "cloudformation",
+                }
+                git_objects = {
+                    "git", "gitclient", "simplegit", "octokit",
+                }
+
+                if keyword in {"push", "merge"} and obj not in git_objects:
+                    continue
+
+                if keyword in {"deploy", "terminate"} and obj not in infrastructure_objects:
+                    continue
 
             # Ignore common frontend collection/UI operations that happen
             # to use security-sensitive English words.

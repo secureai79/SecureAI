@@ -36,7 +36,9 @@ _AST_RELEVANCE_RE = __import__("re").compile(
     |\.\s*(?:execute|exec|execSync|spawn|spawnSync|Popen|check_output|system)\s*\(
     |\.\s*(?:transfer|payout)\s*\(
     |\.\s*(?:send|sendmail|sendEmail|sendMessage)\s*\(
-    |\.\s*(?:deploy|terminate|merge|push)\s*\(
+    | \b(?:boto3|ec2|ecs|eks|cloudformation|kubernetes|k8s|docker|terraform|helm)\w*
+  \s*\.\s*(?:deploy|terminate|terminateInstances|terminate_instances)\s*\(
+| \b(?:git|gitClient|simpleGit|octokit)\s*\.\s*(?:push|merge)\s*\(
     """,
     __import__("re").IGNORECASE | __import__("re").VERBOSE,
 )
