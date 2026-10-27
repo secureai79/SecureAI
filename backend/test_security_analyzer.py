@@ -60,3 +60,31 @@ def test_private_key_is_critical():
 def test_ignores_lockfiles():
     findings = analyze_security("package-lock.json", '{"token":"ghp_abcdefghijklmnopqrstuvwxyz1234567890"}')
     assert findings == []
+
+
+def test_does_not_flag_sensitive_word_in_unrelated_nearby_code():
+    src = '''password_reset_enabled = True
+logger.info("password reset flow initialized")
+requests.get("https://status.example.com/health")
+'''
+    findings = analyze_security("app/status.py", src)
+    assert "data_exfiltration" not in caps(findings)
+
+
+def test_does_not_flag_secret_example_in_comment():
+    findings = analyze_security("app/config.py", '# API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n')
+    assert "exposed_secret" not in caps(findings)
+    assert "hardcoded_credential" not in caps(findings)
+
+
+def test_route_does_not_borrow_auth_marker_from_previous_route():
+    src = '''@app.get("/profile")
+def profile(current_user=Depends(get_current_user)):
+    return current_user
+
+@app.delete("/admin/users/{user_id}")
+def delete_user(user_id):
+    db.delete(user_id)
+'''
+    findings = analyze_security("app/routes.py", src)
+    assert "unguarded_endpoint" in caps(findings)

@@ -81,6 +81,9 @@ def _f(title, severity, category, description, recommendation, path, line, confi
 def detect_secrets(path, text):
     out = []
     for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith(("#", "//", "*", "/*", "<!--")):
+            continue
         for name, pat in SECRET_PATTERNS:
             m = pat.search(line)
             if m and not _placeholder(m.group(0)):
@@ -104,39 +107,50 @@ def detect_secrets(path, text):
 def detect_data_leak(path, text):
     lines = text.splitlines()
     out = []
+    # A sensitive word in a broad window is not proof of data flow. Require the
+    # actual outbound call's arguments to reference a sensitive identifier, or
+    # a nearby payload assignment to do so. This reduces cross-function noise.
     for i, line in enumerate(lines, 1):
         if not NETWORK_SINK.search(line):
             continue
-        context_lines = lines[max(0, i - 10):min(len(lines), i + 3)]
-        context = "\n".join(context_lines)
-        # Require a sensitive identifier/expression in the same small local
-        # context rather than carrying variables across unrelated functions.
-        if SENSITIVE_NAME.search(context):
+        window = lines[max(0, i - 3):min(len(lines), i + 2)]
+        context = "\n".join(window)
+        sink_args = line[line.find("(") + 1:] if "(" in line else line
+        payload_assignment = any(
+            re.search(r"(?i)\b(?:json|data|payload|body|params)\s*=", x)
+            and SENSITIVE_NAME.search(x)
+            for x in window
+        )
+        if SENSITIVE_NAME.search(sink_args) or payload_assignment:
             out.append(_f("Sensitive data may be sent outside the application", "HIGH", "DATA_EXPOSURE",
-                "Sensitive information appears in the local data flow of an outbound network request.",
-                "Verify the destination and data being sent. Minimize the data, redact secrets/PII, validate the destination, and require authorization for sensitive exports.",
-                path, i, .84, ["Sensitive data is referenced near an outbound network request."], "data_exfiltration", _line(text, i)))
+                "The outbound request arguments or an adjacent payload assignment reference a sensitive identifier; actual runtime contents are not proven.",
+                "Verify the destination and payload. Minimize data, redact secrets/PII, validate destinations, and authorize sensitive exports.",
+                path, i, .78, ["Sensitive identifier appears in the request arguments or explicit payload assignment; runtime data flow is not confirmed."], "data_exfiltration", _line(text, i)))
     return out
-
 
 def detect_auth(path, text):
     lines = text.splitlines()
     out = []
-    for i, line in enumerate(lines, 1):
-        if not ROUTE_DECL.search(line):
-            continue
+    route_indexes = [i for i, line in enumerate(lines) if ROUTE_DECL.search(line)]
+    for pos, idx in enumerate(route_indexes):
+        line_no = idx + 1
+        line = lines[idx]
         quoted = re.findall(r"['\"]([^'\"]+)['\"]", line)
         route = next((q for q in quoted if q.startswith("/")), None)
         if not route or not SENSITIVE_PATH.search(route):
             continue
-        context = "\n".join(lines[max(0, i - 4):min(len(lines), i + 14)])
+        # Never borrow an auth marker from an adjacent endpoint. Inspect only
+        # this route's declaration, middleware arguments and immediate handler
+        # signature/body before the next route declaration (bounded to 12 lines).
+        next_route = route_indexes[pos + 1] if pos + 1 < len(route_indexes) else len(lines)
+        end = min(next_route, idx + 12)
+        context = "\n".join(lines[idx:end])
         if not AUTH_MARKERS.search(context):
             out.append(_f("Sensitive endpoint may be missing authentication or authorization", "HIGH", "AUTHENTICATION",
-                f"A sensitive HTTP endpoint ({route}) appears without a recognized authentication or authorization check nearby.",
-                "Require authentication and an explicit authorization check. Verify role or resource ownership before the sensitive action.",
-                path, i, .78, [f"Sensitive route detected: {route}", "No recognized authentication/authorization guard found nearby."], "unguarded_endpoint", _line(text, i)))
+                f"A sensitive HTTP endpoint ({route}) has no recognized authentication/authorization marker in its own route declaration or immediate handler context. Custom dependencies or framework-level guards may not be recognized.",
+                "Verify authentication and explicit authorization, including role and resource ownership checks. Confirm global middleware and custom dependencies before treating this as a confirmed vulnerability.",
+                path, line_no, .68, [f"Sensitive route detected: {route}", "No recognized auth marker found within this route's bounded context; global/framework guards may be outside static analysis."], "unguarded_endpoint", _line(text, line_no)))
     return out
-
 
 def detect_injection(path, text):
     lines = text.splitlines()
