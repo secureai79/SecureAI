@@ -94,3 +94,39 @@ async function run() {
     assert findings[0]["scored"] is True
     assert findings[0]["ai_controlled"] is True
     assert findings[0]["severity"] == "HIGH"
+
+
+def test_array_push_is_not_reported_as_code_push():
+    a = analyze("""
+import OpenAI from 'openai';
+const ai = new OpenAI();
+async function run(candidates) {
+  const answer = await ai.responses.create({input: 'choose'});
+  candidates.push(answer);
+}
+""")
+    assert not any(f.operation == "push" for f in a.ast_findings)
+
+
+def test_generic_socket_send_is_not_reported_as_outbound_message():
+    a = analyze("""
+import OpenAI from 'openai';
+const ai = new OpenAI();
+async function run(socket, message) {
+  const answer = await ai.responses.create({input: message});
+  socket.send(answer.output_text);
+}
+""")
+    assert not any(f.operation == "send" for f in a.ast_findings)
+
+
+def test_explicit_git_client_push_remains_detectable():
+    a = analyze("""
+import OpenAI from 'openai';
+const ai = new OpenAI();
+async function run(gitClient) {
+  const answer = await ai.responses.create({input: 'choose'});
+  gitClient.push(answer.output_text);
+}
+""")
+    assert any(f.operation == "push" for f in a.ast_findings)

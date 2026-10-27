@@ -243,6 +243,16 @@ def detect_dangerous_functions(text: str) -> list[dict]:
                     "link",
                     "listener",
                     "a",
+                    # Common DOM query/collection APIs: `.remove()` here
+                    # removes a UI node/class, not persisted application data.
+                    "queryselector",
+                    "queryselectorall",
+                    "getelementbyid",
+                    "getelementsbyclassname",
+                    "classlist",
+                    "parentnode",
+                    "childnodes",
+                    "children",
                 }:
                     continue
 

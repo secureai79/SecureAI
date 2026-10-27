@@ -95,13 +95,15 @@ const DANGEROUS = [
   [/\btransfer\b/i, 'FINANCIAL', 'transfer'],
   [/\bpayout\b/i, 'FINANCIAL', 'payout'],
   [/(cursor|conn|session|db|pool|client)\..*execute/i, 'DATA', 'execute_sql'],
-  [/\b(sendmail|sendEmail|sendMessage|send)\b/i, 'COMMUNICATION', 'send'],
+  // Explicit outbound APIs only; generic `.send()` is common in sockets/streams.
+  [/\b(sendmail|sendEmail|sendMessage)\b/i, 'COMMUNICATION', 'send'],
   [/(^|\.)os\.system$/i, 'INFRASTRUCTURE', 'execute'],
   [/(^|\.)(exec|execSync|spawn|spawnSync|run|Popen|call|check_output)$/i, 'INFRASTRUCTURE', 'execute'],
   [/(kubernetes|k8s|docker|terraform|helm|ec2|ecs|eks).*deploy/i, 'INFRASTRUCTURE', 'deploy'],
   [/\.terminate(Instance|Instances)?$/i, 'INFRASTRUCTURE', 'terminate'],
   [/\.merge$/i, 'CODE', 'merge'],
-  [/\bpush$/i, 'CODE', 'push']
+  // Array.prototype.push is ubiquitous; only flag explicit Git client calls.
+  [/(^|\.)(git|gitClient|simpleGit|octokit)\.push$/i, 'CODE', 'push']
 ];
 
 function chain(node) {

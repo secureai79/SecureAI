@@ -113,3 +113,15 @@ cursor.execute(query)
 '''
     findings = analyze_security("app/db.py", src)
     assert "sql_injection" in caps(findings)
+
+
+
+def test_dom_element_removal_is_not_reported_as_destructive_capability():
+    from app.scanner.detectors import detect_dangerous_functions
+
+    src = """
+document.querySelector("#banner").remove();
+element.classList.remove("hidden");
+"""
+    findings = detect_dangerous_functions(src)
+    assert not any(f["keyword"] == "remove" for f in findings)
