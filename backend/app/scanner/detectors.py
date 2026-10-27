@@ -234,44 +234,18 @@ def detect_dangerous_functions(text: str) -> list[dict]:
                 if keyword in {"deploy", "terminate"} and obj not in infrastructure_objects:
                     continue
 
-            # Ignore common frontend collection/UI operations that happen
-            # to use security-sensitive English words.
-                        # Ignore common frontend collection/UI operations that happen
-            # to use security-sensitive English words.
+            # A bare `.remove()` is ambiguous: frontend code commonly uses it
+            # to remove DOM nodes or temporary UI elements. Only treat it as a
+            # destructive capability when the receiver suggests persisted data,
+            # filesystem, or database state. Unknown receivers are review-neutral.
             if keyword == "remove" and exact_match:
-                if obj in {
-                    "",
-                    "array",
-                    "arrays",
-                    "list",
-                    "items",
-                    "history",
-                    "state",
-                    "set",
-                }:
-                    continue
-
-                # Browser/DOM cleanup is not destructive data deletion.
-                if obj in {
-                    "window",
-                    "document",
-                    "element",
-                    "node",
-                    "anchor",
-                    "link",
-                    "listener",
-                    "a",
-                    # Common DOM query/collection APIs: `.remove()` here
-                    # removes a UI node/class, not persisted application data.
-                    "queryselector",
-                    "queryselectorall",
-                    "getelementbyid",
-                    "getelementsbyclassname",
-                    "classlist",
-                    "parentnode",
-                    "childnodes",
-                    "children",
-                }:
+                destructive_remove_objects = {
+                    "os", "shutil", "fs", "filesystem",
+                    "db", "database", "cursor", "conn", "connection",
+                    "session", "storage", "s3", "bucket",
+                    "repository", "repo", "file", "files",
+                }
+                if obj not in destructive_remove_objects:
                     continue
 
             # Array/list push is not a repository/code push.
