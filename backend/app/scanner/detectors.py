@@ -191,6 +191,11 @@ def detect_dangerous_functions(text: str) -> list[dict]:
     )
 
     for m in call_re.finditer(text):
+        # Do not interpret a function declaration as an invocation.
+        declaration_prefix = text[max(0, m.start() - 48):m.start()]
+        if re.search(r"\\b(?:function|def)\\s+$", declaration_prefix):
+            continue
+
         name = m.group("name")
         obj = (m.group("object") or "").lower()
         lname = name.lower()
@@ -207,6 +212,7 @@ def detect_dangerous_functions(text: str) -> list[dict]:
             NON_DANGEROUS_METHODS = {
                 "removeitem",
                 "removeeventlistener",
+                "removechild",
                 "sendmessage",
             }
 
@@ -308,8 +314,10 @@ def detect_dangerous_functions(text: str) -> list[dict]:
         lname = name.lower()
 
         for keyword, (category, label) in DANGEROUS_FUNCTIONS.items():
-            # Exact name only. Do not classify handleDrop as DROP.
+            # A function definition alone is not evidence of a destructive operation.
             if lname != keyword:
+                continue
+            if lname == "remove":
                 continue
 
             line = _line_of(text, m.start())
