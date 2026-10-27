@@ -152,36 +152,79 @@ def detect_auth(path, text):
                 path, line_no, .68, [f"Sensitive route detected: {route}", "No recognized auth marker found within this route's bounded context; global/framework guards may be outside static analysis."], "unguarded_endpoint", _line(text, line_no)))
     return out
 
+def _is_parameterized_sql(line: str, context: str) -> bool:
+    """Return True for common parameterized/prepared SQL patterns.
+
+    This is deliberately conservative: parameter binding is strong evidence
+    against SQL injection for values, while identifiers still need allowlists.
+    """
+    low = (line + "\n" + context).lower()
+    # DB-API / sqlite / psycopg placeholders and a separate parameter argument.
+    if re.search(r"(?:execute|executemany|query)\s*\(\s*[^,]+,\s*(?:\(|\[|\{|[a-z_]\w*)", low):
+        if re.search(r"(?:%s|%\([^)]+\)s|\?|:[a-z_]\w*|\$[0-9]+)", low):
+            return True
+    # Explicit ORM parameter binding / prepared statements.
+    if re.search(r"\b(?:prepare|preparedstatement|parameterizedquery)\b", low):
+        return True
+    return False
+
+
 def detect_injection(path, text):
     lines = text.splitlines()
     out = []
+    # Track dynamic SQL assignments, but only report when the tracked variable
+    # reaches a recognized SQL sink. Avoid broad nearby-line heuristics: they
+    # incorrectly label unrelated SQL calls in the same function as injectable.
     dynamic_queries = {}
     for i, line in enumerate(lines, 1):
-        # Track only variables whose names strongly indicate SQL/query text.
+        stripped = line.lstrip()
+        if stripped.startswith(("#", "//", "/*", "*")):
+            continue
+
         m = re.search(r"(?i)^\s*([A-Za-z_]\w*)\s*=\s*(.+)$", line)
         if m and re.search(r"(?i)(sql|query|statement)", m.group(1)):
             rhs = m.group(2)
-            if SQL_TEXT.search(rhs) and (UNTRUSTED.search(rhs) or "{" in rhs or "`" in rhs or "+" in rhs or ".format(" in rhs or "%" in rhs):
+            if SQL_TEXT.search(rhs) and (UNTRUSTED.search(rhs) or "{" in rhs or "`" in rhs or re.search(r"\s\+\s|\.format\(|%\s", rhs)):
                 dynamic_queries[m.group(1)] = i
+            elif re.search(r"(?i)(?:SELECT|INSERT|UPDATE|DELETE)\b", rhs) and not re.search(r"[`${}]|\s\+\s|\.format\(|%\s", rhs):
+                dynamic_queries.pop(m.group(1), None)
 
         sink = SQL_SINK.search(line)
         if sink:
-            local = "\n".join(lines[max(0, i - 8):min(len(lines), i + 2)])
-            referenced_dynamic = any(re.search(rf"\b{re.escape(v)}\b", line) for v in dynamic_queries)
-            direct_dynamic = SQL_TEXT.search(local) and (UNTRUSTED.search(local) or re.search(r"[`${}]|\+|\.format\(|%[sd]", local))
-            if referenced_dynamic or direct_dynamic:
+            # Only inspect the sink's own call and explicit query variable
+            # assignments; never infer taint merely from unrelated nearby text.
+            call_tail = line[sink.end():]
+            call_prefix = line[:sink.start()]
+            referenced_dynamic = any(
+                re.search(rf"\b{re.escape(name)}\b", call_tail)
+                for name in dynamic_queries
+            )
+            direct_dynamic = bool(
+                SQL_TEXT.search(line)
+                and (UNTRUSTED.search(line) or re.search(r"[`${}]|\s\+\s|\.format\(", line))
+            )
+            context = "\n".join(lines[max(0, i - 4):i])
+            parameterized = _is_parameterized_sql(line, context)
+            if (referenced_dynamic or direct_dynamic) and not parameterized:
                 out.append(_f("SQL query may contain untrusted input", "HIGH", "INJECTION",
-                    "A database SQL execution path appears to combine query text with untrusted or interpolated input.",
-                    "Use parameterized queries or prepared statements and validate inputs. Do not build SQL by concatenating request or AI-generated values.",
-                    path, i, .90, ["A recognized database SQL sink is near dynamically constructed or untrusted query data."], "sql_injection", _line(text, i)))
+                    "A recognized database SQL sink receives a query expression that appears dynamically constructed from untrusted input. Parameter binding and identifier validation should be verified.",
+                    "Use parameterized queries or prepared statements for values. For dynamic table/column names, use a strict allowlist; never concatenate untrusted values into SQL syntax.",
+                    path, i, .82, ["Dynamic SQL construction and a recognized database sink were detected; verify the source-to-sink path and parameter binding."], "sql_injection", _line(text, i)))
 
         if SHELL_SINK.search(line):
-            context = "\n".join(lines[max(0, i - 6):i + 1])
-            if UNTRUSTED.search(context):
+            # Require an untrusted source in the command argument or a directly
+            # assigned command variable; nearby unrelated mentions are not enough.
+            call = line[line.find("(") + 1:] if "(" in line else ""
+            context = "\n".join(lines[max(0, i - 3):i])
+            source_names = re.findall(r"(?i)([A-Za-z_]\w*)\s*=.*(?:request\.|req\.|model[_-]?output|ai[_-]?output|user[_-]?input)", context)
+            has_tainted_arg = bool(UNTRUSTED.search(call)) or any(
+                re.search(rf"\b{re.escape(name)}\b", call) for name in source_names
+            )
+            if has_tainted_arg:
                 out.append(_f("User or AI-controlled data may reach a shell command", "CRITICAL", "INJECTION",
-                    "A command-execution function appears to receive data that may originate from user input or AI output.",
-                    "Avoid shell=True and string-built commands. Use an allowlist, structured arguments, strict validation, and an approval boundary for AI-triggered operations.",
-                    path, i, .86, ["Command-execution sink detected near a potentially untrusted source."], "command_injection", _line(text, i)))
+                    "A command-execution function appears to receive an argument linked to user input or AI output.",
+                    "Prefer APIs that accept structured arguments without a shell. Apply allowlists and strict validation, and require approval for AI-triggered operations.",
+                    path, i, .82, ["The command argument references a potentially untrusted source; confirm the data flow and shell configuration."], "command_injection", _line(text, i)))
     return out
 
 

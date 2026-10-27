@@ -88,3 +88,28 @@ def delete_user(user_id):
 '''
     findings = analyze_security("app/routes.py", src)
     assert "unguarded_endpoint" in caps(findings)
+
+
+def test_parameterized_sql_is_not_flagged():
+    src = '''query = "SELECT * FROM users WHERE id = %s"
+cursor.execute(query, (request.args["id"],))
+'''
+    findings = analyze_security("app/db.py", src)
+    assert "sql_injection" not in caps(findings)
+
+
+def test_unrelated_untrusted_text_near_sql_sink_is_not_enough():
+    src = '''user_input = request.args["name"]
+logger.info("user input received")
+cursor.execute("SELECT id FROM users")
+'''
+    findings = analyze_security("app/db.py", src)
+    assert "sql_injection" not in caps(findings)
+
+
+def test_dynamic_sql_reaching_sink_is_flagged():
+    src = '''query = f"SELECT * FROM users WHERE id = {request.args['id']}"
+cursor.execute(query)
+'''
+    findings = analyze_security("app/db.py", src)
+    assert "sql_injection" in caps(findings)
