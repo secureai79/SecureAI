@@ -66,3 +66,15 @@ def test_modern_openai_and_anthropic_key_formats_are_detected():
     for src in (openai, anthropic):
         found = analyze_security("app/config.py", src)
         assert any(f["capability"] == "exposed_secret" for f in found), src[:20]
+
+
+def test_example_assignment_in_comment_is_not_flagged_as_hardcoded_credential():
+    src = '# API_KEY = "' + _fake("abcdefghijklmnopqrstuvwxyz123456") + '"\n'
+    found = caps(analyze_security("app/config.py", src))
+    assert "hardcoded_credential" not in found and "exposed_secret" not in found
+
+
+def test_real_looking_assignment_in_comment_is_still_flagged():
+    src = '# DB_PASSWORD = "Xq7!rT9zLm2Vw8Kd4Hs"\n'
+    found = caps(analyze_security("app/config.py", src))
+    assert "hardcoded_credential" in found

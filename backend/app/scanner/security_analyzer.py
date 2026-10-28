@@ -121,6 +121,11 @@ def _looks_fake(value, line=""):
     return bool(re.search(r"(?i)\b(example|sample|e\.g\.|dummy|fake|placeholder|redacted)\b", line))
 
 
+def _assigned_value(line):
+    m = re.search(r"[:=]\s*[\"']([^\"'\n]+)[\"']", line)
+    return m.group(1) if m else ""
+
+
 def detect_secrets(path, text):
     out = []
     for i, line in enumerate(text.splitlines(), 1):
@@ -135,7 +140,8 @@ def detect_secrets(path, text):
                 break
         else:
             m = SECRET_ASSIGNMENT.search(line)
-            if m and not _not_a_credential_value(line, m.group(1), text):
+            if m and not _not_a_credential_value(line, m.group(1), text) and not (
+                    _is_comment(line) and _looks_fake(_assigned_value(line), line)):
                 if not _placeholder(line) and not re.search(r"(?i)(getenv|env\[|process\.env|os\.environ|secretmanager|vault)", line):
                     out.append(_f(f"Hardcoded credential: {m.group(1).replace('_',' ').lower()}", "HIGH", "SECRETS",
                         "A value that looks like a credential is hardcoded in source code.",
