@@ -2,7 +2,8 @@ from __future__ import annotations
 import re
 
 SECRET_PATTERNS = [
-    ("OpenAI API key", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
+    ("OpenAI API key", re.compile(r"\bsk-(?:(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})\b")),
+    ("Anthropic API key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b")),
     ("Stripe secret key", re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")),
     ("GitHub token", re.compile(r"\b(?:ghp|gho|ghs|ghr)_[A-Za-z0-9_]{20,}\b")),
     ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
@@ -14,7 +15,7 @@ SECRET_PATTERNS = [
 SECRET_ASSIGNMENT = re.compile(r"(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|ACCESS[_-]?KEY)[A-Z0-9_]*)\b\s*[:=]\s*[\"'][^\"'\n]{8,}[\"']")
 SENSITIVE_NAME = re.compile(r"(?i)\b(?:\w+[_-])?(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")  # prefix allowed: client_secret, db_password
 NETWORK_SINK = re.compile(r"(?i)\b(?:requests\.(?:get|post|put|patch|delete|request)|httpx\.(?:get|post|put|patch|delete|request)|urllib\.request|fetch\s*\(|axios(?:\.[A-Za-z]+)?\s*\(|got\s*\()")
-AUTH_MARKERS = re.compile(r"(?i)(?:requireAuth|authenticate|isAuthenticated|authorize|authorization|current_user|Depends\s*\(\s*get_current_user|verifyToken|verifyJwt|checkPermission|requirePermission|requireRole|isAdmin|adminOnly|authMiddleware)")
+AUTH_MARKERS = re.compile(r"(?i)(?:requireAuth|authenticate|isAuthenticated|authorize|authorization|current_user|login_required|require_admin|requires_auth|auth_required|jwt_required|permission_required|Depends\s*\(\s*get_current_user|verifyToken|verifyJwt|checkPermission|requirePermission|requireRole|isAdmin|adminOnly|authMiddleware)")
 SENSITIVE_PATH = re.compile(r"(?i)(?:^|/)(?:admin|user|users|account|accounts|payment|payments|refund|billing|transfer|delete|remove|credentials|secrets)(?:/|$)")
 ROUTE_DECL = re.compile(r"(?i)(?:@(?:app|router)\.(?:post|put|patch|delete)|(?:app|router)\.(?:post|put|patch|delete))\s*\(")
 SHELL_SINK = re.compile(r"(?i)\b(?:os\.system|os\.popen|subprocess\.(?:run|Popen|call|check_call|check_output)|child_process\.(?:exec|execSync|spawn|spawnSync))\b")
@@ -96,12 +97,36 @@ def _not_a_credential_value(line, ident, text):
     return False
 
 
+_COMMENT_START = re.compile(r"^\s*(#|//|/\*|\*|<!--|--\s)")
+
+
+def _is_comment(line):
+    return bool(_COMMENT_START.match(line))
+
+
+def _has_sequence(s, n=8):
+    """True for runs like abcdefgh or 12345678 (typical made-up example keys)."""
+    for i in range(len(s) - n + 1):
+        if all(ord(s[i + j + 1]) - ord(s[i + j]) == 1 for j in range(n - 1)):
+            return True
+    return False
+
+
+def _looks_fake(value, line=""):
+    """Used ONLY for keys inside comments: an obviously invented example key is documentation,
+    but a real-looking key pasted into a comment is still a leaked key and stays flagged."""
+    body = re.sub(r"^(?:sk-(?:ant-)?|sk_(?:live|test)_|(?:ghp|gho|ghs|ghr)_|github_pat_|xox[baprs]-|AIza|AKIA)", "", value)
+    if _has_sequence(body.lower()) or len(set(body.lower())) <= 6:
+        return True
+    return bool(re.search(r"(?i)\b(example|sample|e\.g\.|dummy|fake|placeholder|redacted)\b", line))
+
+
 def detect_secrets(path, text):
     out = []
     for i, line in enumerate(text.splitlines(), 1):
         for name, pat in SECRET_PATTERNS:
             m = pat.search(line)
-            if m and not _placeholder(m.group(0)):
+            if m and not _placeholder(m.group(0)) and not (_is_comment(line) and _looks_fake(m.group(0), line)):
                 sev = "CRITICAL" if "Private key" in name or "secret key" in name.lower() else "HIGH"
                 out.append(_f(f"Exposed {name}", sev, "SECRETS",
                     f"A credential that appears to be a real {name.lower()} is present in source code.",
@@ -147,6 +172,26 @@ def detect_data_leak(path, text):
     return out
 
 
+def _route_window(lines, i):
+    """Lines that belong to the route declared on 1-based line ``i``: its stacked decorators above,
+    then its function up to the next route's decorators (max 14 lines). Never the previous route."""
+    start = i - 1
+    while start - 1 >= 0 and lines[start - 1].lstrip().startswith("@") and not ROUTE_DECL.search(lines[start - 1]):
+        start -= 1
+    end, seen_def = min(len(lines), i + 14), False
+    for k in range(i, min(len(lines), i + 14)):
+        stripped = lines[k].lstrip()
+        if stripped.startswith(("def ", "async def ", "function ", "export ")):
+            seen_def = True
+        elif seen_def and stripped.startswith("@"):
+            end = k                                  # decorators of the NEXT route start here
+            break
+        if ROUTE_DECL.search(lines[k]):
+            end = k
+            break
+    return lines[start:end]
+
+
 def detect_auth(path, text):
     lines = text.splitlines()
     out = []
@@ -157,7 +202,7 @@ def detect_auth(path, text):
         route = next((q for q in quoted if q.startswith("/")), None)
         if not route or not SENSITIVE_PATH.search(route):
             continue
-        context = "\n".join(lines[max(0, i - 4):min(len(lines), i + 14)])
+        context = "\n".join(_route_window(lines, i))
         if not AUTH_MARKERS.search(context):
             out.append(_f("Sensitive endpoint may be missing authentication or authorization", "HIGH", "AUTHENTICATION",
                 f"A sensitive HTTP endpoint ({route}) appears without a recognized authentication or authorization check nearby.",
