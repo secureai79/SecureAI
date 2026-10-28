@@ -53,6 +53,12 @@ NON_RUNTIME_PATH_PATTERNS = [
     re.compile(r"(^|/)examples?(/|$)"),
     re.compile(r"(^|/)fixtures?(/|$)"),
     re.compile(r"(^|/)mocks?(/|$)"),
+    re.compile(r"(^|/)benchmarks?(/|$)"),
+    re.compile(r"(^|/)samples?(/|$)"),
+    re.compile(r"(^|/)demos?(/|$)"),
+    re.compile(r"(^|/)demo[_-][^/]+(/|$)"),
+    re.compile(r"(^|/)(testdata|test_data|e2e|cypress)(/|$)"),
+    re.compile(r"(^|/)[^/]*[._-](backup|bak|orig)[^/]*$"),    # editor/backup leftovers, e.g. foo.84pass.backup.py
     # Deliberately NOT excluding a bare "tools/" directory: in agent
     # frameworks that's frequently where the agent's actual callable
     # capabilities live (e.g. agency-swarm's tools/built_in/PersistentShellTool.py

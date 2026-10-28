@@ -172,6 +172,19 @@ def detect_imports(text: str) -> list[dict]:
     return found
 
 
+_DATA_RECEIVER_EXACT = {"os", "fs", "db", "shutil", "path", "pathlib", "s3", "prisma", "knex", "redis", "mongo",
+                        "session", "client", "bucket", "unlink"}
+_DATA_RECEIVER_PARTS = ("repo", "table", "model", "collection", "storage", "store", "cache", "queryset",
+                        "file", "record", "database", "dbo", "mongoose", "sequelize", "bucket")
+
+
+def _data_like_receiver(obj: str) -> bool:
+    """`x.remove()` is only a data-deletion capability when x looks like a DB/file/storage handle.
+    overlay.remove(), bar.remove(), el.remove() are DOM or collection housekeeping."""
+    obj = (obj or "").lower()
+    return obj in _DATA_RECEIVER_EXACT or any(p in obj for p in _DATA_RECEIVER_PARTS)
+
+
 def detect_dangerous_functions(text: str) -> list[dict]:
     """Scan function/call names and raw SQL for potentially dangerous operations."""
     found = []
@@ -191,11 +204,6 @@ def detect_dangerous_functions(text: str) -> list[dict]:
     )
 
     for m in call_re.finditer(text):
-        # Do not interpret a function declaration as an invocation.
-        declaration_prefix = text[max(0, m.start() - 48):m.start()]
-        if re.search(r"\\b(?:function|def)\\s+$", declaration_prefix):
-            continue
-
         name = m.group("name")
         obj = (m.group("object") or "").lower()
         lname = name.lower()
@@ -212,7 +220,6 @@ def detect_dangerous_functions(text: str) -> list[dict]:
             NON_DANGEROUS_METHODS = {
                 "removeitem",
                 "removeeventlistener",
-                "removechild",
                 "sendmessage",
             }
 
@@ -220,38 +227,39 @@ def detect_dangerous_functions(text: str) -> list[dict]:
                 continue
 
             if not exact_match and not custom_capability_name:
-
                 continue
 
-                        # Ambiguous operation names require stronger object context.
-            if exact_match and keyword in {"push", "merge", "deploy", "terminate"}:
-                infrastructure_objects = {
-                    "ec2", "ec2_client", "ecs", "eks", "k8s",
-                    "kubernetes", "docker", "terraform", "helm",
-                    "cloudformation",
-                }
-                git_objects = {
-                    "git", "gitclient", "simplegit", "octokit",
-                }
+            # Ignore common frontend collection/UI operations that happen
+            # to use security-sensitive English words.
+                        # Ignore common frontend collection/UI operations that happen
+            # to use security-sensitive English words.
+            if keyword == "remove" and exact_match and not _data_like_receiver(obj):
+                continue
 
-                if keyword in {"push", "merge"} and obj not in git_objects:
-                    continue
-
-                if keyword in {"deploy", "terminate"} and obj not in infrastructure_objects:
-                    continue
-
-            # A bare `.remove()` is ambiguous: frontend code commonly uses it
-            # to remove DOM nodes or temporary UI elements. Only treat it as a
-            # destructive capability when the receiver suggests persisted data,
-            # filesystem, or database state. Unknown receivers are review-neutral.
             if keyword == "remove" and exact_match:
-                destructive_remove_objects = {
-                    "os", "shutil", "fs", "filesystem",
-                    "db", "database", "cursor", "conn", "connection",
-                    "session", "storage", "s3", "bucket",
-                    "repository", "repo", "file", "files",
-                }
-                if obj not in destructive_remove_objects:
+                if obj in {
+                    "",
+                    "array",
+                    "arrays",
+                    "list",
+                    "items",
+                    "history",
+                    "state",
+                    "set",
+                }:
+                    continue
+
+                # Browser/DOM cleanup is not destructive data deletion.
+                if obj in {
+                    "window",
+                    "document",
+                    "element",
+                    "node",
+                    "anchor",
+                    "link",
+                    "listener",
+                    "a",
+                }:
                     continue
 
             # Array/list push is not a repository/code push.
@@ -314,10 +322,8 @@ def detect_dangerous_functions(text: str) -> list[dict]:
         lname = name.lower()
 
         for keyword, (category, label) in DANGEROUS_FUNCTIONS.items():
-            # A function definition alone is not evidence of a destructive operation.
+            # Exact name only. Do not classify handleDrop as DROP.
             if lname != keyword:
-                continue
-            if lname == "remove":
                 continue
 
             line = _line_of(text, m.start())

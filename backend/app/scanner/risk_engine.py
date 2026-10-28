@@ -160,7 +160,11 @@ def _apply_scoring_gate(finding: dict, analysis: FileAnalysis) -> dict:
       score, so "Fix My Score" shouldn't imply it would)
     """
     non_runtime = file_selector.is_non_runtime_path(finding["file_path"])
-    scored = analysis.used_ast and not non_runtime
+    # A capability that no AI output demonstrably reaches, in a file that does not use any AI SDK or
+    # agent framework, is ordinary application code (e.g. a git subprocess call). Report it as a lead;
+    # do not let it lower an *AI* safety score.
+    no_ai_link = finding.get("ai_controlled") is False and not finding.get("ai_provider")
+    scored = analysis.used_ast and not non_runtime and not no_ai_link
 
     finding["scored"] = scored
     if scored:
@@ -171,6 +175,8 @@ def _apply_scoring_gate(finding: dict, analysis: FileAnalysis) -> dict:
         reasons.append("regex/keyword match, no data-flow verification available for this file type")
     if non_runtime:
         reasons.append("path looks like test/tooling/docs/examples code, not agent runtime code")
+    if no_ai_link:
+        reasons.append("no AI SDK in this file and no traced data-flow from AI output reaches this call")
     reason_text = "; ".join(reasons)
 
     finding["severity"] = "LOW"
@@ -515,3 +521,4 @@ def calculate_domain_scores(findings: list[dict]) -> dict:
         "ai_safety": ai_score,
         "project_security": project_score,
     }
+
