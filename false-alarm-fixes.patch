@@ -1,0 +1,229 @@
+--- a/backend/app/scanner/ast_detector.py
++++ b/backend/app/scanner/ast_detector.py
+@@ -182,6 +182,53 @@
+     return None
+ 
+ 
++_PKG_TOOLS = {"uv", "pip", "pip3", "npm", "pnpm", "yarn", "poetry", "pipx", "brew", "conda", "cargo"}
++_GIT_READONLY_OR_FETCH = {"clone", "init", "status", "diff", "log", "rev-parse", "fetch", "ls-files",
++                          "config", "show", "describe", "branch", "remote", "--version", "version"}
++
++
++_PUSH_TARGET = re.compile(r"(git|repo|remote|origin|branch|hub|registry|docker|image|commit|release)", re.IGNORECASE)
++_TRANSPORT_ROOT = re.compile(r"(websocket|_ws\b|\bws\b|connection|socket|stream|super)", re.IGNORECASE)
++
++
++def _is_internal_plumbing(operation: str, chain: str) -> bool:
++    """`buffer.push(x)`, `super().push()`, `websocket.send(frame)` are data-structure / transport calls,
++    not pushing code to a remote or messaging a person."""
++    root = chain.rsplit(".", 1)[0] if "." in chain else ""
++    if operation == "terminate":
++        # Popen.terminate() on a child-process handle ends the program's own subprocess; cloud
++        # terminate_instances / terminate(...) on other objects stays reported.
++        return bool(re.search(r"(?i)(?:^|[._])(?:proc|process|_process|popen|child|subprocess|worker)$", root))
++    if operation == "send" and (root in ("self", "cls") or chain == "Send" or root.endswith(".chat")):
++        return True        # own-method / graph-routing Send() / LLM chat.send are not messaging a person
++    if operation == "push":
++        return not _PUSH_TARGET.search(root)
++    if operation == "send":
++        return bool(_TRANSPORT_ROOT.search(root)) or root.startswith("super")
++    return False
++
++
++def _is_fixed_dev_tooling(call_node: ast.Call) -> bool:
++    """A fixed argv list that runs dependency/VCS tooling (uv pip install, git clone...). These are
++    ordinary program logic; an AI cannot change what they do. Uninstall/publish/push stay reported."""
++    first = call_node.args[0] if call_node.args else None
++    if not isinstance(first, (ast.List, ast.Tuple)) or not first.elts:
++        return False
++    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in first.elts[:2]):
++        return False                       # first two tokens must be literal (tool + subcommand)
++    argv = [e.value for e in first.elts if isinstance(e, ast.Constant)]
++    tool = argv[0].split()[0].replace("\\", "/").rsplit("/", 1)[-1].lower().removesuffix(".exe")
++    rest = {a.lower() for a in argv[1:]}
++    if rest & {"uninstall", "publish", "push", "remove", "rm", "delete"}:
++        return False
++    if tool in _PKG_TOOLS:
++        return True
++    if tool != "git":
++        return False
++    sub = next((a.lower() for a in argv[1:] if not a.startswith("-") or a in ("--version",)), "")
++    return sub in _GIT_READONLY_OR_FETCH or (len(argv) > 1 and argv[1].lower() in _GIT_READONLY_OR_FETCH)
++
++
+ def _is_shell_like(call_node: ast.Call, chain: str) -> bool:
+     """True when the call runs a command *string* through a shell."""
+     last = chain.split(".")[-1] if chain else ""
+@@ -630,6 +677,12 @@
+                     and not _is_shell_like(call_node, chain)):
+                 continue
+ 
++            if (operation == "execute" and not args_tainted and not _is_shell_like(call_node, chain)
++                    and _is_fixed_dev_tooling(call_node)):
++                continue
++            if _is_internal_plumbing(operation, chain):
++                continue
++
+             approval, limit = _find_guards(fn, call_node)
+             line = call_node.lineno
+             # Keep original indentation (don't .strip()) — fix_generator.py
+--- a/backend/app/scanner/sql_flow.py
++++ b/backend/app/scanner/sql_flow.py
+@@ -364,6 +364,10 @@
+     return any(host == h or host.endswith("." + h) for h in PROVIDER_HOSTS)
+ 
+ 
++AUTH_KWARGS = ("headers", "auth")
++OAUTH_ENDPOINT = re.compile(r"(?i)(?:token|oauth|authori[sz]e|auth)[_.]?(?:url|uri|endpoint)\b|/oauth2?/|/token\b")
++
++
+ def find_sensitive_network_calls(text: str, sensitive: "re.Pattern"):
+     """Lines of real HTTP *calls* whose arguments (or the values assigned to those arguments)
+     mention sensitive data. A regex defined in a string, or a comment, is not a call."""
+@@ -377,7 +381,12 @@
+                 continue
+             if isinstance(child, ast.Call) and isinstance(child.func, (ast.Attribute, ast.Name)):
+                 if NET_CALL.match(".".join(_chain(child.func))):
+-                    parts = list(child.args) + [k.value for k in child.keywords]
++                    if child.args and OAUTH_ENDPOINT.search(ast.unparse(child.args[0])):
++                        walk(child, scope)       # posting client credentials to an OAuth token endpoint is
++                        continue                 # the protocol itself, not data leaving the app
++                    # A credential passed only as an auth header / auth= argument is authentication to the
++                    # service being called, not data leaving the app. Body, params, url and data still count.
++                    parts = list(child.args) + [k.value for k in child.keywords if k.arg not in AUTH_KWARGS]
+                     blob = " ".join(ast.unparse(p) for p in parts)
+                     for p in parts:                                   # one level of assignment lookup
+                         for n in ast.walk(p):
+--- a/backend/app/scanner/security_analyzer.py
++++ b/backend/app/scanner/security_analyzer.py
+@@ -10,7 +10,7 @@
+     ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+     ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b")),
+     ("AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+-    ("Private key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
++    ("Private key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----(?!\s*(?:\.{2,}|\u2026|<|\$|\{|\\n\.{2,}))")),
+ ]
+ SECRET_ASSIGNMENT = re.compile(r"(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|ACCESS[_-]?KEY)[A-Z0-9_]*)\b\s*[:=]\s*[\"'][^\"'\n]{8,}[\"']")
+ SENSITIVE_NAME = re.compile(r"(?i)\b(?:\w+[_-])?(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")  # prefix allowed: client_secret, db_password
+@@ -80,7 +80,7 @@
+     )
+ 
+ _NON_SECRET_NAME = re.compile(r"(?i)(?:^|[_-])(?:usage|url|uri|endpoint|type|count|limit|budget|expiry|expires|"
+-                              r"expiration|ttl|path|file|filename|header|prefix|length|size|name)$")
++                              r"expiration|ttl|path|file|filename|header|prefix|length|size|name|env|env_var|envvar|counter|resource|tokens)$")
+ _PLACEHOLDER_VALUE = re.compile(r"^(?:<[^<>\n]+>|\$\{?[A-Za-z_]\w*\}?|\{\{.*\}\}|%\(\w+\)s|\$\(.*\))$")
+ _NAME_LIKE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+ _NAME_SUFFIX = ("_token", "_key", "_id", "_secret", "_password", "_session", "_user", "_org", "_name")
+@@ -100,6 +100,12 @@
+     # The variable name says what the value is, and it is not a secret: token_url, TOKEN_USAGE, secret_name...
+     if _NON_SECRET_NAME.search(ident):
+         return True
++    # The value is the NAME of an environment variable (api_key_env="OPENAI_API_KEY"), a path, prose,
++    # a type annotation, or an obvious placeholder -- none of these is a secret.
++    if re.match(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$", val) or val.startswith("/") or re.search(r"[\s\[\]]", val):
++        return True
++    if re.search(r"(?i)\b(?:my|your|the|example|dummy|fake|sample)[-_ ]?(?:api[-_ ]?)?(?:key|token|secret|password)\b", val):
++        return True
+     # Template / documentation placeholders: "<api-key>", "${TOKEN}", "{{ secret }}", "%(password)s", "$(cmd)"
+     if _PLACEHOLDER_VALUE.match(val):
+         return True
+--- a/benchmark/build_cases.py
++++ b/benchmark/build_cases.py
+@@ -320,6 +320,97 @@
+ case("tp_secret_in_json_config_still_flagged", {"config.json": '{"openai_key": "' + FAKE_PREFIX + 'proj-9fK2LmQx81ZtV7cRb4NwYd3HsJ6PaUe0"}\n'},
+      expect=["exposed_secret"], why="data files are still checked for leaked secrets")
+ 
++# ---------------- round 3: classes found by hand-checking crewAI / LangChain / OpenAI Agents SDK ----------------
++case("fp_ext_uv_install_in_ai_file", {"setup.py": AI_PRE + '''import subprocess
++def install():
++    subprocess.run(["uv", "pip", "install", "requests"], check=True)
++    subprocess.run(["git", "clone", "https://example.com/x.git", "x"], check=True)
++'''}, forbid=["execute"], why="fixed dependency/VCS tooling in a file that merely imports an AI SDK")
++case("tp_ext_ai_output_to_subprocess", {"agent.py": AI_PRE + '''import subprocess
++def run(prompt):
++    cmd = client.messages.create(model="claude-3-opus-20240229", max_tokens=50,
++                                 messages=[{"role": "user", "content": prompt}]).content[0].text
++    subprocess.run(["bash", "-c", cmd])
++'''}, expect=["execute"], why="AI output becomes the command: must stay reported")
++case("tp_ext_git_push_force_kept", {"agent.py": AI_PRE + '''import subprocess
++def ship():
++    subprocess.run(["git", "push", "--force", "origin", "main"])
++'''}, expect=["execute"], why="git push is not read-only tooling; still reported")
++case("fp_ext_api_key_in_auth_header", {"tool.py": '''import requests
++class SearchTool:
++    def run(self, q):
++        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
++        return requests.post(self.base_url, json={"query": q}, headers=headers, timeout=30).text
++'''}, forbid=["data_exfiltration"], why="credential used as an auth header is authentication, not leaving the app")
++case("tp_ext_api_key_in_request_body_kept", {"leak.py": '''import requests
++def go(api_key, base_url):
++    requests.post(base_url, json={"api_key": api_key})
++'''}, expect=["data_exfiltration"], why="credential in the body to an unknown destination is still flagged")
++case("fp_ext_env_var_name_as_value", {"models.py": '''cfg = dict(api_key_env="OPENAI_API_KEY", token_counter="approximate")
++huggingfacehub_api_token = "my-api-key"
++'''}, forbid=["hardcoded_credential"], why="value is an env-var NAME or an obvious placeholder")
++case("fp_ext_buffer_push_and_websocket_send", {"stream.py": AI_PRE + '''class Buf:
++    def push(self, x): self.items.append(x)
++class S(Buf):
++    def add(self, d):
++        super().push(d)
++        self.buf.push(d)
++    async def emit(self, frame):
++        await self._websocket.send(frame)
++'''}, forbid=["push", "send"], why="data-structure push and transport-level send are not actions on the outside world")
++case("tp_ext_email_send_kept", {"agent.py": AI_PRE + '''import smtplib
++def notify(prompt):
++    body = client.messages.create(model="claude-3-opus-20240229", max_tokens=50,
++                                  messages=[{"role": "user", "content": prompt}]).content[0].text
++    smtplib.SMTP("mail").sendmail("a@x.com", "b@y.com", body)
++'''}, expect=["send"], why="AI-written outbound email must remain reported")
++
++# ---------------- round 4: OAuth token endpoint, placeholder PEM, child-process terminate, own-method send ----------------
++case("fp_ext_oauth_token_endpoint", {"auth.py": '''import httpx
++class OAuth:
++    async def fetch(self, client):
++        data = {"grant_type": "client_credentials", "client_secret": self.client_secret}
++        return await client.post(self.token_url, data=data)
++'''}, forbid=["data_exfiltration"], why="client credentials sent to an OAuth token endpoint is the protocol itself")
++case("tp_ext_secret_to_other_url_kept", {"leak2.py": '''import httpx
++def go(client, url, client_secret):
++    return client.post(url, data={"client_secret": client_secret})
++'''}, expect=["data_exfiltration"], why="same secret sent to an arbitrary destination is still flagged")
++case("fp_ext_placeholder_pem_in_docstring", {"sign.py": '''def sign(key_pem):
++    """Example:
++        >>> sign(key_pem="-----BEGIN PRIVATE KEY-----...")
++    """
++'''}, forbid=["exposed_secret"], why="docs example with an ellipsis instead of key material")
++case("tp_ext_real_pem_kept", {"key.py": 'KEY = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\\n-----END PRIVATE KEY-----"\n'},
++     expect=["exposed_secret"], why="actual key material must still be flagged")
++case("fp_ext_terminate_own_subprocess", {"transport.py": AI_PRE + '''class T:
++    def close(self):
++        self._process.terminate()
++'''}, forbid=["terminate"], why="ending the program's own child process")
++case("tp_ext_terminate_cloud_instances_kept", {"agent.py": AI_PRE + '''import boto3
++def kill(ids):
++    boto3.client("ec2").terminate_instances(InstanceIds=ids)
++'''}, expect=["terminate"], why="terminating cloud instances must stay reported")
++case("fp_ext_self_send_and_graph_Send", {"graph.py": AI_PRE + '''from langgraph.types import Send
++class Stream:
++    def go(self, x):
++        self.send(x)
++def route(calls):
++    return [Send("tools", [c]) for c in calls]
++'''}, forbid=["send"], why="own-method send / LangGraph Send() routing are not messaging a person")
++case("fp_ext_uv_pip_single_token", {"inst.py": AI_PRE + '''import subprocess
++subprocess.run(["uv pip", "install", "tavily-python"], check=True)
++'''}, forbid=["execute"], why="package installer given as one token")
++
++case("fp_ext_git_dash_C_readonly", {"vcs.py": AI_PRE + '''import subprocess
++def known(root, ref):
++    return subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", f"{ref}^{{commit}}"], capture_output=True)
++'''}, forbid=["execute"], why="git -C <dir> rev-parse is read-only VCS tooling")
++case("tp_ext_git_dash_C_push_kept", {"vcs2.py": AI_PRE + '''import subprocess
++def ship(root):
++    subprocess.run(["git", "-C", str(root), "push", "--force"])
++'''}, expect=["execute"], why="git push stays reported even with -C")
++
+ if os.path.isdir(ROOT):
+     shutil.rmtree(ROOT)
+ for name, c in C.items():
