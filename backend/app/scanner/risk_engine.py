@@ -253,7 +253,9 @@ def _build_findings_ast(analysis: FileAnalysis, repo_has_ai: bool) -> list[dict]
             "ai_provider": file_ai_provider,
             "confidence": f.control_confidence,
             "evidence": evidence,
-            "recommendation": RECOMMENDATIONS.get(f.category, "Add a human review step before this action executes."),
+            "recommendation": _recommendation_for(
+                RECOMMENDATIONS.get(f.category, "Add a human review step before this action executes."),
+                f.approval_detected, f.limit_detected),
             "consequence": CONSEQUENCE_MAP.get((f.category, f.operation),"Potential real-world impact"),
             "impact_level": IMPACT_LEVEL_MAP.get((f.category, f.operation),"MEDIUM",),
             "control_status": _control_status(f.approval_detected,f.limit_detected,),
@@ -270,6 +272,19 @@ def _build_findings_ast(analysis: FileAnalysis, repo_has_ai: bool) -> list[dict]
         })
 
     return findings
+
+
+def _recommendation_for(base: str, approval: bool, limit: bool) -> str:
+    """Do not tell someone to add a control the scanner already found in their code."""
+    if approval and limit:
+        return ("A human-approval step and a threshold/limit check were detected before this action. Keep them, "
+                "and test that the AI cannot bypass them (for example by lowering the threshold or calling the "
+                "action directly).")
+    if approval:
+        return "A human-approval step was detected. Also add a limit (amount, count or rate cap). " + base
+    if limit:
+        return "A limit check was detected. Also add a human-approval step for values above it. " + base
+    return base
 
 
 def _title_for(category: str, label: str, provider: str | None, ai_controlled: bool = True) -> str:
@@ -420,7 +435,9 @@ def _build_findings_regex(analysis: FileAnalysis, repo_has_ai: bool) -> list[dic
             "ai_provider": file_ai_provider,
             "confidence": confidence,
             "evidence": evidence,
-            "recommendation": RECOMMENDATIONS.get(category, "Add a human review step before this action executes."),
+            "recommendation": _recommendation_for(
+                RECOMMENDATIONS.get(category, "Add a human review step before this action executes."),
+                has_approval, has_limit),
             "consequence": CONSEQUENCE_MAP.get((category, keyword),"Potential real-world impact",),
             "impact_level": IMPACT_LEVEL_MAP.get((category, keyword),"MEDIUM",),
             "control_status": _control_status(has_approval,has_limit,),

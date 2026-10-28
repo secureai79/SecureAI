@@ -171,6 +171,23 @@ def _work_root() -> str | None:
     return None
 
 
+def _release_db(db) -> None:
+    """End the open database transaction before a long, database-free phase (clone, sandboxed analysis).
+
+    A session that sits "idle in transaction" for minutes is killed by Postgres
+    (idle_in_transaction_session_timeout), and the scan then fails on its next query. Large repositories
+    (e.g. microsoft/autogen) take long enough to hit that. After commit, ORM attributes are expired and the
+    next attribute access opens a NEW transaction, so callers must read the values they need first.
+    """
+    try:
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def _prepare_source(db: Session, repository: models.Repository, local_path: str | None,
                     github_token: str | None = None) -> tuple[str, str | None]:
     """Resolve the directory to analyse. Returns (root, temp_dir_to_delete_or_None).
@@ -180,21 +197,24 @@ def _prepare_source(db: Session, repository: models.Repository, local_path: str 
     """
     if local_path:
         return local_path, None
-    if repository.repo_url.startswith("file://"):
+    repo_url = repository.repo_url                  # read now: attributes expire once the transaction ends
+    org_id = repository.organization_id
+    if repo_url.startswith("file://"):
         if not allow_local_repos():
             raise ValueError("Local repositories are disabled. Set ALLOW_LOCAL_REPOS=true for local development only.")
-        return repository.repo_url[len("file://"):], None
-    validate_repository_url(repository.repo_url)
+        return repo_url[len("file://"):], None
+    validate_repository_url(repo_url)
     tmp_dir = tempfile.mkdtemp(prefix="ai_safety_scan_", dir=_work_root())
     try:
         if github_token is None:
             try:
                 from ..routers.github_oauth import GITHUB_APP_SLUG, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, get_installation_token
                 if GITHUB_APP_SLUG and GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY:
-                    github_token = get_installation_token(db, repository.organization_id)
+                    github_token = get_installation_token(db, org_id)
             except Exception:
                 github_token = None
-        _clone_repo(repository.repo_url, tmp_dir, github_token)
+        _release_db(db)                             # the clone can take minutes: no open transaction meanwhile
+        _clone_repo(repo_url, tmp_dir, github_token)
         _scan_debug("STAGE clone_complete")
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -346,6 +366,7 @@ def _execute_scan(db: Session, repository: models.Repository, scan: models.Scan,
         except Exception:
             pass
         root, tmp_dir = _prepare_source(db, repository, local_path, github_token)
+        _release_db(db)                             # in-process analysis can also take minutes
         result = analyze_directory(root)
         return _persist_scan_result(db, repository, scan, result)
 
@@ -462,6 +483,7 @@ def run_scan_isolated(db: Session, repository: models.Repository, local_path: st
         except ValueError as exc:
             return fail(str(exc))
 
+        _release_db(db)                             # the sandboxed analysis can run for minutes: no open transaction
         work_dir = tempfile.mkdtemp(prefix="ai_safety_out_", dir=_work_root())
         out_path = os.path.join(work_dir, "result.json")
         proc = sp.Popen(

@@ -430,5 +430,72 @@
   ],
   "forbid": [],
   "why": "real CrewAI agent output run in a shell"
+ },
+ "fp_autogen_angle_placeholders": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential",
+   "exposed_secret"
+  ],
+  "why": "documentation placeholders in angle brackets"
+ },
+ "fp_autogen_shell_variable": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential"
+  ],
+  "why": "${TOKEN} is a shell variable reference, not a value"
+ },
+ "fp_autogen_token_url_name": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential"
+  ],
+  "why": "a variable named token_url holds a URL"
+ },
+ "fp_autogen_classpath_value": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential"
+  ],
+  "why": "value is a dotted class path, name says usage"
+ },
+ "fp_autogen_oauth_exchange_via_variable": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "OAuth exchange with the provider; URL held in a constant variable"
+ },
+ "fp_autogen_json_data_with_sample_code": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration",
+   "hardcoded_credential",
+   "sql_injection",
+   "unguarded_endpoint"
+  ],
+  "why": "JSON data file: a string that contains sample code is not running code"
+ },
+ "tp_real_secret_still_flagged_after_name_rules": {
+  "expect": [
+   "hardcoded_credential"
+  ],
+  "forbid": [],
+  "why": "real-looking values under credential names must still be flagged"
+ },
+ "tp_exfil_via_variable_unknown_host": {
+  "expect": [
+   "data_exfiltration"
+  ],
+  "forbid": [],
+  "why": "the URL variable points at an unrelated host"
+ },
+ "tp_secret_in_json_config_still_flagged": {
+  "expect": [
+   "exposed_secret"
+  ],
+  "forbid": [],
+  "why": "data files are still checked for leaked secrets"
  }
 }

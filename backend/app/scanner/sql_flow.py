@@ -320,15 +320,47 @@ PROVIDER_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com", "googleap
 PII_NAME = re.compile(r"(?i)\b(customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")
 
 
-def _credential_to_own_provider(call: ast.Call, blob: str) -> bool:
-    """True when the destination is a literal https URL on a known provider host and nothing
-    in the call is personal data (credentials only)."""
+def _url_prefix(node, scope, depth=0):
+    """The literal beginning of a URL expression: a constant, a name assigned once from a constant, or
+    the constant head of an f-string / 'prefix' + x. None when it cannot be determined."""
+    if node is None or depth > 3:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        head = ""
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                head += v.value
+            else:
+                break
+        return head or None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _url_prefix(node.left, scope, depth + 1)
+    if isinstance(node, ast.Name):
+        sc = scope
+        while sc is not None:
+            if node.id in sc.assigns:
+                values = [e for _, e in sc.assigns[node.id]]
+                return _url_prefix(values[0], sc, depth + 1) if len(values) == 1 else None
+            sc = sc.parent
+    return None
+
+
+def _credential_to_own_provider(call: ast.Call, blob: str, scope=None) -> bool:
+    """True when the destination is an https URL on a known provider host and nothing in the call
+    is personal data (credentials only). The URL may be a literal, a constant variable
+    (token_url = "https://github.com/..."), or an f-string whose host part is literal."""
     if PII_NAME.search(blob):
         return False
     url = call.args[0] if call.args else next((k.value for k in call.keywords if k.arg == "url"), None)
-    if not (isinstance(url, ast.Constant) and isinstance(url.value, str) and url.value.startswith("https://")):
+    prefix = _url_prefix(url, scope)
+    if not (prefix and prefix.startswith("https://")):
         return False
-    host = url.value[len("https://"):].split("/", 1)[0].split(":", 1)[0].lower()
+    rest = prefix[len("https://"):]
+    if "/" not in rest and not isinstance(url, ast.Constant) and not isinstance(url, ast.Name):
+        return False                                     # host may be cut off mid-way (f"https://{sub}.x.com")
+    host = rest.split("/", 1)[0].split(":", 1)[0].lower()
     return any(host == h or host.endswith("." + h) for h in PROVIDER_HOSTS)
 
 
@@ -356,7 +388,7 @@ def find_sensitive_network_calls(text: str, sensitive: "re.Pattern"):
                                         blob += " " + " ".join(ast.unparse(e) for _, e in sc.assigns[n.id])
                                         break
                                     sc = sc.parent
-                    if sensitive.search(blob) and not _credential_to_own_provider(child, blob):
+                    if sensitive.search(blob) and not _credential_to_own_provider(child, blob, scope):
                         hits.append(child.lineno)
             walk(child, scope)
 

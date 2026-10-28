@@ -54,6 +54,13 @@ def analyze_file(file_path: str, text: str) -> FileAnalysis:
         # Syntax error (e.g. a template file with `.py` extension that isn't
         # valid Python) — fall through to the regex path below.
 
+    # JSON/YAML data files (test fixtures, manifests, configs) are not code: a word like "execute" or
+    # "update" inside a string is not a capability. Dependency manifests (package.json) are kept because
+    # an AI SDK listed there is a real signal; MCP configs are analysed separately by mcp_analyzer.
+    if (file_path.lower().endswith((".json", ".yaml", ".yml"))
+            and file_path.replace("\\", "/").rsplit("/", 1)[-1].lower() != "package.json"):
+        return FileAnalysis(file_path=file_path, raw_text=text)
+
     # Regex/keyword fallback: non-Python files, or Python that failed to parse.
     imports = detectors.detect_imports(text)
     ai_http = detectors.detect_ai_http_endpoints(text)

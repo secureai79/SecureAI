@@ -79,6 +79,9 @@ def _f(title, severity, category, description, recommendation, path, line, confi
         control_status="UNKNOWN",
     )
 
+_NON_SECRET_NAME = re.compile(r"(?i)(?:^|[_-])(?:usage|url|uri|endpoint|type|count|limit|budget|expiry|expires|"
+                              r"expiration|ttl|path|file|filename|header|prefix|length|size|name)$")
+_PLACEHOLDER_VALUE = re.compile(r"^(?:<[^<>\n]+>|\$\{?[A-Za-z_]\w*\}?|\{\{.*\}\}|%\(\w+\)s|\$\(.*\))$")
 _NAME_LIKE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
 _NAME_SUFFIX = ("_token", "_key", "_id", "_secret", "_password", "_session", "_user", "_org", "_name")
 
@@ -93,6 +96,17 @@ def _not_a_credential_value(line, ident, text):
     if re.search(storage_use, text):
         return True
     if _NAME_LIKE.match(val) and val.endswith(_NAME_SUFFIX) and not re.search(r"\d", val):
+        return True
+    # The variable name says what the value is, and it is not a secret: token_url, TOKEN_USAGE, secret_name...
+    if _NON_SECRET_NAME.search(ident):
+        return True
+    # Template / documentation placeholders: "<api-key>", "${TOKEN}", "{{ secret }}", "%(password)s", "$(cmd)"
+    if _PLACEHOLDER_VALUE.match(val):
+        return True
+    # A URL without embedded credentials, or a dotted class/module path (pkg.module.ClassName)
+    if re.match(r"^https?://[^\s@]*$", val):
+        return True
+    if re.match(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}$", val) and not re.search(r"(?i)password|passwd|secret|api[_-]?key", ident):
         return True
     return False
 
@@ -299,7 +313,12 @@ def analyze_security(file_path, text):
     p = file_path.replace("\\", "/").lower()
     if any(x in p for x in (".min.js", ".map", "package-lock.json", "pnpm-lock.yaml", "yarn.lock")):
         return []
-    out = detect_secrets(file_path, text) + detect_data_leak(file_path, text) + detect_auth(file_path, text) + detect_injection(file_path, text)
+    if p.endswith((".json", ".yaml", ".yml")) and not p.endswith("package.json"):
+        # Data files (gallery/manifest/config JSON, YAML): a string that holds sample source code is not
+        # code that runs. Only look for leaked secrets, not for data-flow or endpoint patterns.
+        out = detect_secrets(file_path, text)
+    else:
+        out = detect_secrets(file_path, text) + detect_data_leak(file_path, text) + detect_auth(file_path, text) + detect_injection(file_path, text)
     seen = set()
     result = []
     for f in out:
