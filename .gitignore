@@ -67,3 +67,6 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+# ---- Generated benchmark fixtures (contain deliberately risky / fake-key samples) ----
+benchmark/cases/

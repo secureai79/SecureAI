@@ -5,6 +5,9 @@ sys.path.insert(0, os.path.join(HERE, "..", "backend"))
 from aisafety.scan import scan_directory
 
 SEV = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+if not os.path.isdir(os.path.join(HERE, "cases")) or not os.path.exists(os.path.join(HERE, "manifest.json")):
+    import runpy
+    runpy.run_path(os.path.join(HERE, "build_cases.py"))     # cases are generated, not committed
 man = json.load(open(os.path.join(HERE, "manifest.json")))
 tp = fn = fp = tn = 0
 per = collections.defaultdict(lambda: collections.Counter())

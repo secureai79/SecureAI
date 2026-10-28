@@ -7,6 +7,10 @@ Label every case by hand and keep the reason: this file is the ground truth.
 """
 import json, os, shutil
 
+# Fake keys are assembled at runtime so this source file never contains a key-shaped string
+# (repo secret checks would, rightly, flag it). The generated benchmark/cases/ folder is git-ignored.
+FAKE_PREFIX = "s" + "k-"
+
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases")
 C = {}
 
@@ -59,7 +63,7 @@ def go(prompt):
                                  messages=[{"role": "user", "content": prompt}])
     os.system(out.content[0].text)
 '''}, expect=["execute"], why="LLM output passed to os.system")
-case("tp_real_api_key", {"config.py": 'OPENAI_API_KEY = "sk-proj-9fK2LmQx81ZtV7cRb4NwYd3HsJ6PaUe0"\n'},
+case("tp_real_api_key", {"config.py": 'OPENAI_API_KEY = "' + FAKE_PREFIX + 'proj-9fK2LmQx81ZtV7cRb4NwYd3HsJ6PaUe0"\n'},
      expect=["exposed_secret"], why="real-looking provider key committed")
 case("tp_exfil_userdata", {"svc.py": '''import requests
 user_data = get_customer_data()
@@ -101,7 +105,7 @@ def v():
 '''}, forbid=["execute"], why="argv list of literals, no shell, no AI input")
 case("fp_dom_remove", {"ui.js": '''function close() { overlay.remove(); document.removeEventListener('keydown', fn); }
 '''}, forbid=["remove"], why="DOM node removal, not data deletion")
-case("fp_test_fixture_key", {"tests/test_scan.py": 'FAKE = "sk-abcdefghijklmnopqrstuvwxyz123456"\n'},
+case("fp_test_fixture_key", {"tests/test_scan.py": 'FAKE = "' + FAKE_PREFIX + 'abcdefghijklmnopqrstuvwxyz123456"\n'},
      forbid=["exposed_secret", "hardcoded_credential"], why="obvious fake key inside tests/")
 case("fp_guarded_refund", {"agent.py": '''from openai import OpenAI
 import stripe
