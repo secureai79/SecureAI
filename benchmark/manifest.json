@@ -1,0 +1,434 @@
+{
+ "tp_ai_sql_delete": {
+  "expect": [
+   "delete",
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "AI-driven DELETE built by string interpolation, no approval"
+ },
+ "tp_sqli_request_input": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "request param concatenated into SQL"
+ },
+ "tp_refund_unguarded": {
+  "expect": [
+   "refund"
+  ],
+  "forbid": [],
+  "why": "LLM decides refund amount, executed directly"
+ },
+ "tp_email_unguarded": {
+  "expect": [
+   "send"
+  ],
+  "forbid": [],
+  "why": "AI-generated email sent with no human in loop"
+ },
+ "tp_shell_from_llm": {
+  "expect": [
+   "execute"
+  ],
+  "forbid": [],
+  "why": "LLM output passed to os.system"
+ },
+ "tp_real_api_key": {
+  "expect": [
+   "exposed_secret"
+  ],
+  "forbid": [],
+  "why": "real-looking provider key committed"
+ },
+ "tp_exfil_userdata": {
+  "expect": [
+   "data_exfiltration"
+  ],
+  "forbid": [],
+  "why": "customer data posted to third party"
+ },
+ "fp_ddl_constant": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "constant DDL string, no variable input"
+ },
+ "fp_ddl_whitelist_fstring": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "identifier comes from a hardcoded set, not input"
+ },
+ "fp_orm_delete": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "ORM expression, parameterized by the library"
+ },
+ "fp_orm_update_execute": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "SQLAlchemy Core update(), parameterized"
+ },
+ "fp_parameterized_query": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "bound parameter"
+ },
+ "fp_healthcheck_select1": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "constant health-check query"
+ },
+ "fp_storage_key_name": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential",
+   "exposed_secret"
+  ],
+  "why": "string is a storage key NAME, not a secret"
+ },
+ "fp_placeholder_secret": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential",
+   "exposed_secret"
+  ],
+  "why": "documented placeholders"
+ },
+ "fp_detector_regex": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration",
+   "hardcoded_credential"
+  ],
+  "why": "regex definitions of a scanner, not behaviour"
+ },
+ "fp_git_subprocess_literal": {
+  "expect": [],
+  "forbid": [
+   "execute"
+  ],
+  "why": "argv list of literals, no shell, no AI input"
+ },
+ "fp_dom_remove": {
+  "expect": [],
+  "forbid": [
+   "remove"
+  ],
+  "why": "DOM node removal, not data deletion"
+ },
+ "fp_test_fixture_key": {
+  "expect": [],
+  "forbid": [
+   "exposed_secret",
+   "hardcoded_credential"
+  ],
+  "why": "obvious fake key inside tests/"
+ },
+ "fp_guarded_refund": {
+  "expect": [],
+  "forbid": [
+   "refund:HIGH"
+  ],
+  "why": "amount cap + human approval; must not be rated HIGH"
+ },
+ "tp_sqli_format_param": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "function arg formatted into SQL via .format()"
+ },
+ "tp_sqli_percent_request": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "request value %-formatted into a query variable, then executed"
+ },
+ "tp_sqli_fstring_via_var": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "taint flows request -> term -> f-string -> sql -> execute"
+ },
+ "fp_int_cast": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "value is cast to int before interpolation"
+ },
+ "fp_quoted_identifier": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "psycopg2 Identifier quoting"
+ },
+ "fp_executor_not_sql": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "execute() on a non-database object; no SQL text"
+ },
+ "fp_bare_param_passthrough": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "nothing is built here; caller supplies the whole statement"
+ },
+ "fp_const_loop_ddl": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "identifier comes from a literal tuple"
+ },
+ "tp_hardcoded_db_password": {
+  "expect": [
+   "hardcoded_credential"
+  ],
+  "forbid": [],
+  "why": "real-looking password literal"
+ },
+ "tp_js_sqli_template_req": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "request value interpolated into a template-literal query"
+ },
+ "tp_js_sqli_concat_body": {
+  "expect": [
+   "sql_injection"
+  ],
+  "forbid": [],
+  "why": "request body concatenated into SQL, executed via variable"
+ },
+ "tp_exfil_py_dict_password": {
+  "expect": [
+   "data_exfiltration"
+  ],
+  "forbid": [],
+  "why": "password key sent to third party"
+ },
+ "tp_langchain_tool_refund": {
+  "expect": [
+   "refund"
+  ],
+  "forbid": [],
+  "why": "agent-framework tool in its own file exposes an unguarded refund to the LLM"
+ },
+ "fp_js_sql_tagged_template": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "tagged template is parameterized by the library"
+ },
+ "fp_js_sql_constant": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "bound parameter"
+ },
+ "fp_js_sql_number_cast": {
+  "expect": [],
+  "forbid": [
+   "sql_injection:HIGH"
+  ],
+  "why": "numeric cast"
+ },
+ "fp_storage_key_used_in_storage": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential"
+  ],
+  "why": "constant is the storage key used with sessionStorage"
+ },
+ "fp_exfil_comment_and_regex": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "comment and regex string, no call"
+ },
+ "fp_exfil_nonsensitive_post": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "non-sensitive payload"
+ },
+ "fp_ordinary_subprocess_no_ai": {
+  "expect": [],
+  "forbid": [
+   "execute"
+  ],
+  "why": "no AI SDK in file; ordinary build helper"
+ },
+ "fp_dom_remove_variants": {
+  "expect": [],
+  "forbid": [
+   "remove"
+  ],
+  "why": "DOM nodes"
+ },
+ "fp_demo_dir_not_scored": {
+  "expect": [],
+  "forbid": [
+   "refund"
+  ],
+  "why": "intentionally unsafe sample under demo/; must not lower a customer's score"
+ },
+ "tp_subprocess_shell_true_llm": {
+  "expect": [
+   "execute"
+  ],
+  "forbid": [],
+  "why": "LLM text run through a shell"
+ },
+ "tp_subprocess_argv_llm": {
+  "expect": [
+   "execute"
+  ],
+  "forbid": [],
+  "why": "argv list, but the command is LLM output"
+ },
+ "fp_subprocess_argv_variable_path": {
+  "expect": [],
+  "forbid": [
+   "execute:HIGH"
+  ],
+  "why": "argv list with a path variable in an AI file: product design reports it as a MEDIUM capability (not AI-controlled); must never be HIGH"
+ },
+ "real_database_migrations": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "schema migrations: constant DDL + identifiers from fixed sets/own schema"
+ },
+ "real_email_tokens": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "SQLAlchemy ORM/Core only"
+ },
+ "real_team_router": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "SQLAlchemy ORM/Core only"
+ },
+ "real_mfa_router": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "SQLAlchemy ORM only"
+ },
+ "real_auth_router": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "SQLAlchemy ORM only"
+ },
+ "real_main_healthcheck": {
+  "expect": [],
+  "forbid": [
+   "sql_injection"
+  ],
+  "why": "constant SELECT 1"
+ },
+ "real_scan_service_git": {
+  "expect": [],
+  "forbid": [
+   "execute"
+  ],
+  "why": "git subprocess with argv lists, no shell, not AI-reachable"
+ },
+ "real_security_analyzer_regexes": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "the scanner's own regex definitions"
+ },
+ "real_session_guard_js": {
+  "expect": [],
+  "forbid": [
+   "hardcoded_credential"
+  ],
+  "why": "'secureai_access_token' is a sessionStorage key name"
+ },
+ "fp_oauth_secret_to_github": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "OAuth code exchange: the app's own secret goes to the provider that issued it"
+ },
+ "tp_secret_to_unknown_host": {
+  "expect": [
+   "data_exfiltration"
+  ],
+  "forbid": [],
+  "why": "credential sent to an unrelated host"
+ },
+ "tp_pii_to_provider_host": {
+  "expect": [
+   "data_exfiltration"
+  ],
+  "forbid": [],
+  "why": "PII is flagged even when the host is a known provider"
+ },
+ "real_github_oauth_router": {
+  "expect": [],
+  "forbid": [
+   "data_exfiltration"
+  ],
+  "why": "client_secret sent to github.com token endpoint (OAuth)"
+ },
+ "fp_subprocess_argv_no_ai_file": {
+  "expect": [],
+  "forbid": [
+   "execute"
+  ],
+  "why": "file has no AI provider; argv list; CalledProcessError is an exception class, not a call"
+ },
+ "fp_orm_model_named_agent": {
+  "expect": [],
+  "forbid": [
+   "execute"
+  ],
+  "why": "models.Agent is an ORM class, not a CrewAI agent"
+ },
+ "tp_real_crewai_agent_shell": {
+  "expect": [
+   "execute"
+  ],
+  "forbid": [],
+  "why": "real CrewAI agent output run in a shell"
+ }
+}

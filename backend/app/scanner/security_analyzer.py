@@ -12,7 +12,7 @@ SECRET_PATTERNS = [
     ("Private key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
 ]
 SECRET_ASSIGNMENT = re.compile(r"(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|ACCESS[_-]?KEY)[A-Z0-9_]*)\b\s*[:=]\s*[\"'][^\"'\n]{8,}[\"']")
-SENSITIVE_NAME = re.compile(r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")
+SENSITIVE_NAME = re.compile(r"(?i)\b(?:\w+[_-])?(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")  # prefix allowed: client_secret, db_password
 NETWORK_SINK = re.compile(r"(?i)\b(?:requests\.(?:get|post|put|patch|delete|request)|httpx\.(?:get|post|put|patch|delete|request)|urllib\.request|fetch\s*\(|axios(?:\.[A-Za-z]+)?\s*\(|got\s*\()")
 AUTH_MARKERS = re.compile(r"(?i)(?:requireAuth|authenticate|isAuthenticated|authorize|authorization|current_user|Depends\s*\(\s*get_current_user|verifyToken|verifyJwt|checkPermission|requirePermission|requireRole|isAdmin|adminOnly|authMiddleware)")
 SENSITIVE_PATH = re.compile(r"(?i)(?:^|/)(?:admin|user|users|account|accounts|payment|payments|refund|billing|transfer|delete|remove|credentials|secrets)(?:/|$)")
@@ -78,12 +78,27 @@ def _f(title, severity, category, description, recommendation, path, line, confi
         control_status="UNKNOWN",
     )
 
+_NAME_LIKE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+_NAME_SUFFIX = ("_token", "_key", "_id", "_secret", "_password", "_session", "_user", "_org", "_name")
+
+
+def _not_a_credential_value(line, ident, text):
+    """True when the quoted value is an identifier/key NAME rather than a secret."""
+    m = re.search(r"[:=]\s*[\"']([^\"'\n]+)[\"']", line[line.lower().find(ident.lower()):])
+    val = m.group(1) if m else ""
+    if val.lower() == ident.lower() or val.lower().replace("_", "") == ident.lower().replace("_", ""):
+        return True
+    storage_use = rf"(?:[Ss]torage|[Cc]ookies?|[Hh]eaders?|[Ee]nv|[Cc]onfig)\w*\s*[.\[]\s*(?:getItem|setItem|removeItem|get|set|pop|delete)?\s*\(?\s*{re.escape(ident)}\b"
+    if re.search(storage_use, text):
+        return True
+    if _NAME_LIKE.match(val) and val.endswith(_NAME_SUFFIX) and not re.search(r"\d", val):
+        return True
+    return False
+
+
 def detect_secrets(path, text):
     out = []
     for i, line in enumerate(text.splitlines(), 1):
-        stripped = line.lstrip()
-        if stripped.startswith(("#", "//", "*", "/*", "<!--")):
-            continue
         for name, pat in SECRET_PATTERNS:
             m = pat.search(line)
             if m and not _placeholder(m.group(0)):
@@ -95,7 +110,7 @@ def detect_secrets(path, text):
                 break
         else:
             m = SECRET_ASSIGNMENT.search(line)
-            if m:
+            if m and not _not_a_credential_value(line, m.group(1), text):
                 if not _placeholder(line) and not re.search(r"(?i)(getenv|env\[|process\.env|os\.environ|secretmanager|vault)", line):
                     out.append(_f(f"Hardcoded credential: {m.group(1).replace('_',' ').lower()}", "HIGH", "SECRETS",
                         "A value that looks like a credential is hardcoded in source code.",
@@ -104,127 +119,128 @@ def detect_secrets(path, text):
     return out
 
 
+def _leak_finding(path, text, i):
+    return _f("Sensitive data may be sent outside the application", "HIGH", "DATA_EXPOSURE",
+        "Sensitive information appears in the arguments of an outbound network request.",
+        "Verify the destination and data being sent. Minimize the data, redact secrets/PII, validate the destination, and require authorization for sensitive exports.",
+        path, i, .84, ["Sensitive data is referenced in the arguments of an outbound network call."], "data_exfiltration", _line(text, i))
+
+
 def detect_data_leak(path, text):
+    if path.lower().endswith(".py"):
+        try:
+            from .sql_flow import find_sensitive_network_calls
+            return [_leak_finding(path, text, i) for i in find_sensitive_network_calls(text, SENSITIVE_NAME)]
+        except SyntaxError:
+            pass
     lines = text.splitlines()
     out = []
-    # A sensitive word in a broad window is not proof of data flow. Require the
-    # actual outbound call's arguments to reference a sensitive identifier, or
-    # a nearby payload assignment to do so. This reduces cross-function noise.
     for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith(("#", "//", "*", "/*")) or re.search(r"re\.compile\(|RegExp\(", line):
+            continue                                   # comments and regex definitions are not calls
         if not NETWORK_SINK.search(line):
             continue
-        window = lines[max(0, i - 3):min(len(lines), i + 2)]
-        context = "\n".join(window)
-        sink_args = line[line.find("(") + 1:] if "(" in line else line
-        payload_assignment = any(
-            re.search(r"(?i)\b(?:json|data|payload|body|params)\s*=", x)
-            and SENSITIVE_NAME.search(x)
-            for x in window
-        )
-        if SENSITIVE_NAME.search(sink_args) or payload_assignment:
-            out.append(_f("Sensitive data may be sent outside the application", "HIGH", "DATA_EXPOSURE",
-                "The outbound request arguments or an adjacent payload assignment reference a sensitive identifier; actual runtime contents are not proven.",
-                "Verify the destination and payload. Minimize data, redact secrets/PII, validate destinations, and authorize sensitive exports.",
-                path, i, .78, ["Sensitive identifier appears in the request arguments or explicit payload assignment; runtime data flow is not confirmed."], "data_exfiltration", _line(text, i)))
+        context = "\n".join(lines[max(0, i - 4):min(len(lines), i + 3)])
+        if SENSITIVE_NAME.search(context):
+            out.append(_leak_finding(path, text, i))
     return out
+
 
 def detect_auth(path, text):
     lines = text.splitlines()
     out = []
-    route_indexes = [i for i, line in enumerate(lines) if ROUTE_DECL.search(line)]
-    for pos, idx in enumerate(route_indexes):
-        line_no = idx + 1
-        line = lines[idx]
+    for i, line in enumerate(lines, 1):
+        if not ROUTE_DECL.search(line):
+            continue
         quoted = re.findall(r"['\"]([^'\"]+)['\"]", line)
         route = next((q for q in quoted if q.startswith("/")), None)
         if not route or not SENSITIVE_PATH.search(route):
             continue
-        # Never borrow an auth marker from an adjacent endpoint. Inspect only
-        # this route's declaration, middleware arguments and immediate handler
-        # signature/body before the next route declaration (bounded to 12 lines).
-        next_route = route_indexes[pos + 1] if pos + 1 < len(route_indexes) else len(lines)
-        end = min(next_route, idx + 12)
-        context = "\n".join(lines[idx:end])
+        context = "\n".join(lines[max(0, i - 4):min(len(lines), i + 14)])
         if not AUTH_MARKERS.search(context):
             out.append(_f("Sensitive endpoint may be missing authentication or authorization", "HIGH", "AUTHENTICATION",
-                f"A sensitive HTTP endpoint ({route}) has no recognized authentication/authorization marker in its own route declaration or immediate handler context. Custom dependencies or framework-level guards may not be recognized.",
-                "Verify authentication and explicit authorization, including role and resource ownership checks. Confirm global middleware and custom dependencies before treating this as a confirmed vulnerability.",
-                path, line_no, .68, [f"Sensitive route detected: {route}", "No recognized auth marker found within this route's bounded context; global/framework guards may be outside static analysis."], "unguarded_endpoint", _line(text, line_no)))
+                f"A sensitive HTTP endpoint ({route}) appears without a recognized authentication or authorization check nearby.",
+                "Require authentication and an explicit authorization check. Verify role or resource ownership before the sensitive action.",
+                path, i, .78, [f"Sensitive route detected: {route}", "No recognized authentication/authorization guard found nearby."], "unguarded_endpoint", _line(text, i)))
     return out
 
-def _is_parameterized_sql(line: str, context: str) -> bool:
-    """Return True for common parameterized/prepared SQL patterns.
 
-    This is deliberately conservative: parameter binding is strong evidence
-    against SQL injection for values, while identifiers still need allowlists.
-    """
-    low = (line + "\n" + context).lower()
-    # DB-API / sqlite / psycopg placeholders and a separate parameter argument.
-    if re.search(r"(?:execute|executemany|query)\s*\(\s*[^,]+,\s*(?:\(|\[|\{|[a-z_]\w*)", low):
-        if re.search(r"(?:%s|%\([^)]+\)s|\?|:[a-z_]\w*|\$[0-9]+)", low):
-            return True
-    # Explicit ORM parameter binding / prepared statements.
-    if re.search(r"\b(?:prepare|preparedstatement|parameterizedquery)\b", low):
-        return True
-    return False
+def _sql_hits(path, text):
+    """Data-flow hits, or None when this file type/parse is unsupported (then the old heuristic runs)."""
+    low = path.lower()
+    if low.endswith(".py"):
+        try:
+            from .sql_flow import find_sql_injection
+            return find_sql_injection(text)
+        except SyntaxError:
+            return None
+    if low.endswith((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")):
+        from .js_sql_flow import find_js_sql_injection
+        return find_js_sql_injection(text)
+    return None
+
+
+def _sql_findings(path, text, hits):
+    out = []
+    for h in hits:
+        i = h["line"]
+        if h["level"] == "TAINTED":
+            f = _f("SQL query is built from untrusted input", "HIGH", "INJECTION",
+                   "The query string passed to the database is built from request input or AI output.",
+                   "Use parameterized queries (placeholders + bound values). Never concatenate or interpolate request or AI-generated values into SQL.",
+                   path, i, .90, ["Query text is constructed from request/AI-controlled data (data-flow traced)."], "sql_injection", _line(text, i))
+        elif h["level"] == "PARAM":
+            f = _f("SQL query is built from a function argument", "MEDIUM", "INJECTION",
+                   "The query string is built by string formatting from a function parameter, so any caller can inject SQL.",
+                   "Use bound parameters instead of formatting values into the query. Allowlist identifiers (table/column names).",
+                   path, i, .60, ["Query text is constructed from a function parameter; callers were not traced."], "sql_injection", _line(text, i))
+            f["impact_level"] = "MEDIUM"
+        else:
+            f = _f("Dynamic SQL needs review", "LOW", "INJECTION",
+                   "The query is built dynamically, but we could not show it comes from user or AI input.",
+                   "Confirm every interpolated value is a constant or an allowlisted identifier; prefer bound parameters.",
+                   path, i, .35, ["Dynamic SQL string; origin of interpolated values could not be proven."], "sql_injection", _line(text, i))
+            f["scored"] = False
+            f["impact_level"] = "LOW"
+        out.append(f)
+    return out
 
 
 def detect_injection(path, text):
     lines = text.splitlines()
     out = []
-    # Track dynamic SQL assignments, but only report when the tracked variable
-    # reaches a recognized SQL sink. Avoid broad nearby-line heuristics: they
-    # incorrectly label unrelated SQL calls in the same function as injectable.
     dynamic_queries = {}
+    flow = _sql_hits(path, text)
+    py_flow = flow is not None
+    if py_flow:
+        out.extend(_sql_findings(path, text, flow))
     for i, line in enumerate(lines, 1):
-        stripped = line.lstrip()
-        if stripped.startswith(("#", "//", "/*", "*")):
-            continue
-
+        # Track only variables whose names strongly indicate SQL/query text.
         m = re.search(r"(?i)^\s*([A-Za-z_]\w*)\s*=\s*(.+)$", line)
         if m and re.search(r"(?i)(sql|query|statement)", m.group(1)):
             rhs = m.group(2)
-            if SQL_TEXT.search(rhs) and (UNTRUSTED.search(rhs) or "{" in rhs or "`" in rhs or re.search(r"\s\+\s|\.format\(|%\s", rhs)):
+            if SQL_TEXT.search(rhs) and (UNTRUSTED.search(rhs) or "{" in rhs or "`" in rhs or "+" in rhs or ".format(" in rhs or "%" in rhs):
                 dynamic_queries[m.group(1)] = i
-            elif re.search(r"(?i)(?:SELECT|INSERT|UPDATE|DELETE)\b", rhs) and not re.search(r"[`${}]|\s\+\s|\.format\(|%\s", rhs):
-                dynamic_queries.pop(m.group(1), None)
 
-        sink = SQL_SINK.search(line)
+        sink = SQL_SINK.search(line) if not py_flow else None
         if sink:
-            # Only inspect the sink's own call and explicit query variable
-            # assignments; never infer taint merely from unrelated nearby text.
-            call_tail = line[sink.end():]
-            call_prefix = line[:sink.start()]
-            referenced_dynamic = any(
-                re.search(rf"\b{re.escape(name)}\b", call_tail)
-                for name in dynamic_queries
-            )
-            direct_dynamic = bool(
-                SQL_TEXT.search(line)
-                and (UNTRUSTED.search(line) or re.search(r"[`${}]|\s\+\s|\.format\(", line))
-            )
-            context = "\n".join(lines[max(0, i - 4):i])
-            parameterized = _is_parameterized_sql(line, context)
-            if (referenced_dynamic or direct_dynamic) and not parameterized:
+            local = "\n".join(lines[max(0, i - 8):min(len(lines), i + 2)])
+            referenced_dynamic = any(re.search(rf"\b{re.escape(v)}\b", line) for v in dynamic_queries)
+            direct_dynamic = SQL_TEXT.search(local) and (UNTRUSTED.search(local) or re.search(r"[`${}]|\+|\.format\(|%[sd]", local))
+            if referenced_dynamic or direct_dynamic:
                 out.append(_f("SQL query may contain untrusted input", "HIGH", "INJECTION",
-                    "A recognized database SQL sink receives a query expression that appears dynamically constructed from untrusted input. Parameter binding and identifier validation should be verified.",
-                    "Use parameterized queries or prepared statements for values. For dynamic table/column names, use a strict allowlist; never concatenate untrusted values into SQL syntax.",
-                    path, i, .82, ["Dynamic SQL construction and a recognized database sink were detected; verify the source-to-sink path and parameter binding."], "sql_injection", _line(text, i)))
+                    "A database SQL execution path appears to combine query text with untrusted or interpolated input.",
+                    "Use parameterized queries or prepared statements and validate inputs. Do not build SQL by concatenating request or AI-generated values.",
+                    path, i, .90, ["A recognized database SQL sink is near dynamically constructed or untrusted query data."], "sql_injection", _line(text, i)))
 
         if SHELL_SINK.search(line):
-            # Require an untrusted source in the command argument or a directly
-            # assigned command variable; nearby unrelated mentions are not enough.
-            call = line[line.find("(") + 1:] if "(" in line else ""
-            context = "\n".join(lines[max(0, i - 3):i])
-            source_names = re.findall(r"(?i)([A-Za-z_]\w*)\s*=.*(?:request\.|req\.|model[_-]?output|ai[_-]?output|user[_-]?input)", context)
-            has_tainted_arg = bool(UNTRUSTED.search(call)) or any(
-                re.search(rf"\b{re.escape(name)}\b", call) for name in source_names
-            )
-            if has_tainted_arg:
+            context = "\n".join(lines[max(0, i - 6):i + 1])
+            if UNTRUSTED.search(context):
                 out.append(_f("User or AI-controlled data may reach a shell command", "CRITICAL", "INJECTION",
-                    "A command-execution function appears to receive an argument linked to user input or AI output.",
-                    "Prefer APIs that accept structured arguments without a shell. Apply allowlists and strict validation, and require approval for AI-triggered operations.",
-                    path, i, .82, ["The command argument references a potentially untrusted source; confirm the data flow and shell configuration."], "command_injection", _line(text, i)))
+                    "A command-execution function appears to receive data that may originate from user input or AI output.",
+                    "Avoid shell=True and string-built commands. Use an allowlist, structured arguments, strict validation, and an approval boundary for AI-triggered operations.",
+                    path, i, .86, ["Command-execution sink detected near a potentially untrusted source."], "command_injection", _line(text, i)))
     return out
 
 

@@ -48,6 +48,41 @@ AI_AGENT_CONSTRUCTORS = {
     "initialize_agent": "LangChain", "AgentExecutor": "LangChain",
     "Crew": "CrewAI", "Agent": "CrewAI",
 }
+GENERIC_AGENT_NAMES = {"Crew", "Agent"}
+
+
+_ORM_MODULE_HINT = re.compile(r"(?i)(^|\.)(models?|schemas?|orm|db|database|entities|domain)(\.|$)")
+
+
+def _generic_agent_is_ai(tree: ast.AST, func: ast.AST, ctor: str) -> bool:
+    """Is a call to a generically-named class (`Agent`, `Crew`) an AI-framework agent?
+
+    - `crewai.Agent(...)`            -> yes when crewai is imported
+    - `Agent(...)` after `from pydantic_ai / agents / crewai / ... import Agent` -> yes
+    - `models.Agent(...)`, or `Agent` imported from a relative / models / schema / db module -> no
+    """
+    if isinstance(func, ast.Attribute):
+        root = func.value
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        return isinstance(root, ast.Name) and root.id == "crewai" and _imports_package(tree, "crewai")
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and any((a.asname or a.name) == ctor for a in n.names):
+            if n.level or not n.module or _ORM_MODULE_HINT.search(n.module):
+                return False
+            return True
+    return False            # defined locally or unknown origin: not provably an AI framework class
+
+
+def _imports_package(tree: ast.AST, package: str) -> bool:
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import) and any(a.name == package or a.name.startswith(package + ".") for a in n.names):
+            return True
+        if isinstance(n, ast.ImportFrom) and n.module and (n.module == package or n.module.startswith(package + ".")):
+            return True
+    return False
+
+
 # Methods that, called on an AI client/agent variable, count as "the AI call".
 AI_CALL_METHOD_SUFFIXES = {
     "create", "generate", "generate_content", "run", "invoke", "complete",
@@ -69,10 +104,11 @@ DANGEROUS_CHAIN_RULES = [
     (re.compile(r"stripe\..*\bcharge\b", re.IGNORECASE), "FINANCIAL", "charge"),
     (re.compile(r"\btransfer\b", re.IGNORECASE), "FINANCIAL", "transfer"),
     (re.compile(r"\bpayout\b", re.IGNORECASE), "FINANCIAL", "payout"),
-    (re.compile(r"\b(cursor|conn|session|db)\..*\bexecute\b", re.IGNORECASE), "DATA", "execute_sql"),
+    (re.compile(r"\b(cursor|cur|conn|connection|cnx|session|db|dbh|database|engine)\..*\bexecute(many|script)?\b", re.IGNORECASE), "DATA", "execute_sql"),
     (re.compile(r"\bsendmail\b", re.IGNORECASE), "COMMUNICATION", "send"),
     (re.compile(r"\bsend(_email|_message)?\b", re.IGNORECASE), "COMMUNICATION", "send"),
-    (re.compile(r"subprocess\.(run|call|Popen|check_output)", re.IGNORECASE), "INFRASTRUCTURE", "execute"),
+    # \b: `subprocess.CalledProcessError` (an exception class) must not match `call`.
+    (re.compile(r"subprocess\.(run|call|Popen|check_output|check_call)\b", re.IGNORECASE), "INFRASTRUCTURE", "execute"),
     (re.compile(r"os\.system", re.IGNORECASE), "INFRASTRUCTURE", "execute"),
     (re.compile(r"\bterminate_instances\b|\bterminate\b", re.IGNORECASE), "INFRASTRUCTURE", "terminate"),
     # NOT a bare `\bdeploy\b`: real-repo validation (VALIDATION_REPORT.md)
@@ -144,6 +180,18 @@ def _subprocess_command_text(call_node: ast.Call) -> str | None:
         parts = [el.value for el in arg.elts if isinstance(el, ast.Constant) and isinstance(el.value, str)]
         return " ".join(parts) if parts else None
     return None
+
+
+def _is_shell_like(call_node: ast.Call, chain: str) -> bool:
+    """True when the call runs a command *string* through a shell."""
+    last = chain.split(".")[-1] if chain else ""
+    if last in ("system", "popen"):
+        return True
+    for kw in call_node.keywords:
+        if kw.arg == "shell" and not (isinstance(kw.value, ast.Constant) and kw.value.value is False):
+            return True
+    first = call_node.args[0] if call_node.args else None
+    return first is not None and not isinstance(first, (ast.List, ast.Tuple))
 
 
 @dataclass
@@ -225,7 +273,14 @@ class _FunctionTaintVisitor(ast.NodeVisitor):
 
         if isinstance(node, ast.Call):
     # value derived by calling *something* with a tainted arg, e.g. str(decision)
-            return any(self._expr_tainted(a) for a in node.args)
+            return (any(self._expr_tainted(a) for a in node.args)
+                    or any(self._expr_tainted(k.value) for k in node.keywords))
+
+        # ["sh", "-c", ai_text], (a, b), {a, b}, *ai_args: a container is tainted if any element is.
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            return any(self._expr_tainted(e) for e in node.elts)
+        if isinstance(node, ast.Starred):
+            return self._expr_tainted(node.value)
 
         return False
 
@@ -427,7 +482,10 @@ def analyze_python_ast(file_path: str, source: str) -> FileASTAnalysis:
                         ai_client_vars[t.id] = provider
                         if provider not in result.ai_providers:
                             result.ai_providers.append(provider)
-            elif ctor in AI_AGENT_CONSTRUCTORS:
+            elif ctor in AI_AGENT_CONSTRUCTORS and not (
+                    ctor in GENERIC_AGENT_NAMES and not _generic_agent_is_ai(tree, node.value.func, ctor)):
+                # `Agent` / `Crew` are common class names (an ORM model called Agent is not an AI
+                # agent), so they only count when imported from an AI-framework-looking module.
                 provider = AI_AGENT_CONSTRUCTORS[ctor]
                 for t in node.targets:
                     if isinstance(t, ast.Name):
@@ -561,6 +619,16 @@ def analyze_python_ast(file_path: str, source: str) -> FileASTAnalysis:
                 cmd_text = _subprocess_command_text(call_node)
                 if cmd_text and DEPLOYMENT_TOOL_KEYWORDS.search(cmd_text):
                     operation = "deploy"
+
+            # In a file with NO AI provider, an argv-list subprocess call (no shell) whose arguments
+            # are not derived from AI output is ordinary program logic (e.g. `git clone` in a
+            # backend service), not an AI capability. In a file that does use an AI provider we
+            # keep reporting it (downgraded, since the AI does not control it): an agent's shell
+            # tool is a real capability even with fixed arguments. Shell strings (shell=True,
+            # os.system/popen) and anything linked to AI output are always kept.
+            if (operation == "execute" and not args_tainted and not result.ai_providers
+                    and not _is_shell_like(call_node, chain)):
+                continue
 
             approval, limit = _find_guards(fn, call_node)
             line = call_node.lineno
