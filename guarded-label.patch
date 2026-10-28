@@ -1,0 +1,100 @@
+--- a/backend/app/scanner/report_generator.py
++++ b/backend/app/scanner/report_generator.py
+@@ -35,6 +35,18 @@
+     return "POSSIBLE"
+ 
+ 
++_CONTROLS_TEXT = {
++    "CONTROLLED": "Guarded: a human-approval step and a limit check were detected before this action.",
++    "PARTIALLY_CONTROLLED": "Partly guarded: only one of a human-approval step or a limit check was detected.",
++    "UNCONTROLLED": "Not guarded: no human-approval step or limit check was detected.",
++}
++
++
++def _controls_text(finding):
++    """What safety controls the scanner saw around an AI action; None for findings that are not AI actions."""
++    return _CONTROLS_TEXT.get(str(getattr(finding, "control_status", "") or "").upper())
++
++
+ def _risk_color(label: str):
+     return {
+         "CRITICAL": colors.HexColor("#b91c1c"),
+@@ -257,6 +269,8 @@
+                 styles["Bodyr"]))
+             if f.capability_chain:
+                 story.append(Paragraph(f"<b>How the data moves:</b> {_safe(' → '.join(str(x) for x in f.capability_chain))}", styles["Bodyr"]))
++            if _controls_text(f):
++                story.append(Paragraph(f"<b>Controls:</b> {_safe(_controls_text(f))}", styles["Bodyr"]))
+             if f.snippet:
+                 # Keep only a short, readable evidence line in the customer report.
+                 snippet = str(f.snippet).replace("\n", " ")
+@@ -319,6 +333,8 @@
+                 styles["Bodyr"]))
+             if f.capability_chain:
+                 story.append(Paragraph(f"<b>What we can see:</b> {_safe(' → '.join(str(x) for x in f.capability_chain))}", styles["Bodyr"]))
++            if _controls_text(f):
++                story.append(Paragraph(f"<b>Controls:</b> {_safe(_controls_text(f))}", styles["Bodyr"]))
+             story.append(Paragraph(f"<b>What you can do:</b> {_safe(f.recommendation)}", styles["Bodyr"]))
+             story.append(Spacer(1, 2*mm))
+ 
+--- a/backend/test_scanner_regressions.py
++++ b/backend/test_scanner_regressions.py
+@@ -131,3 +131,58 @@
+     a = capability_extractor.analyze_file("agents/r.py", src)
+     f = [x for x in risk_engine.build_findings_for_file(a, True) if x["capability"] == "refund"][0]
+     assert f["control_status"] == "UNCONTROLLED" and "Require human approval" in f["recommendation"]
++
++
++# ---- report shows whether an AI action is guarded ----
++class _F:
++    """Minimal stand-in for a persisted finding; any attribute not given is None."""
++    def __init__(self, **kw):
++        self.__dict__.update(kw)
++
++    def __getattr__(self, name):
++        return None
++
++
++def _finding(**kw):
++    base = dict(scored=True, status="open", severity="HIGH", category="FINANCIAL", capability="refund",
++                title="AI may issue refunds", description="d", file_path="agents/r.py", line_number=3,
++                confidence=0.85, recommendation="rec", capability_chain=["a", "b"], snippet="x",
++                finding_domain="AI_SAFETY", control_status="UNCONTROLLED")
++    base.update(kw)
++    return _F(**base)
++
++
++def _report_text(monkeypatch, findings):
++    import datetime as dt
++    from types import SimpleNamespace
++    from app.scanner import report_generator as rg
++    texts = []
++    original = rg.Paragraph
++
++    class Recorder(original):
++        def __init__(self, text, *a, **k):
++            texts.append(str(text))
++            super().__init__(text, *a, **k)
++
++    monkeypatch.setattr(rg, "Paragraph", Recorder)
++    repo = SimpleNamespace(repo_name="r", repo_url="https://github.com/o/r")
++    scan = SimpleNamespace(score=50, finished_at=dt.datetime.now(dt.UTC), coverage=None, id="s")
++    pdf = rg.build_scan_report_pdf(repo, scan, findings, {"score": 50, "label": "HIGH RISK", "counts": {}})
++    assert pdf.startswith(b"%PDF")
++    return "\n".join(texts)
++
++
++def test_report_marks_guarded_and_unguarded_actions(monkeypatch):
++    text = _report_text(monkeypatch, [
++        _finding(control_status="UNCONTROLLED", file_path="agents/a.py"),
++        _finding(control_status="CONTROLLED", file_path="agents/b.py", scored=False),
++        _finding(control_status="PARTIALLY_CONTROLLED", file_path="agents/c.py", scored=False),
++    ])
++    assert "Not guarded: no human-approval step or limit check was detected." in text
++    assert "Guarded: a human-approval step and a limit check were detected before this action." in text
++    assert "Partly guarded:" in text
++
++
++def test_report_shows_no_controls_line_for_non_action_findings(monkeypatch):
++    text = _report_text(monkeypatch, [_finding(control_status="UNKNOWN", category="SECRETS", capability="hardcoded_credential")])
++    assert "Controls:" not in text

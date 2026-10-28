@@ -1,0 +1,400 @@
+--- a/backend/app/scanner/capability_extractor.py
++++ b/backend/app/scanner/capability_extractor.py
+@@ -54,6 +54,13 @@
+         # Syntax error (e.g. a template file with `.py` extension that isn't
+         # valid Python) — fall through to the regex path below.
+ 
++    # JSON/YAML data files (test fixtures, manifests, configs) are not code: a word like "execute" or
++    # "update" inside a string is not a capability. Dependency manifests (package.json) are kept because
++    # an AI SDK listed there is a real signal; MCP configs are analysed separately by mcp_analyzer.
++    if (file_path.lower().endswith((".json", ".yaml", ".yml"))
++            and file_path.replace("\\", "/").rsplit("/", 1)[-1].lower() != "package.json"):
++        return FileAnalysis(file_path=file_path, raw_text=text)
++
+     # Regex/keyword fallback: non-Python files, or Python that failed to parse.
+     imports = detectors.detect_imports(text)
+     ai_http = detectors.detect_ai_http_endpoints(text)
+--- a/backend/app/scanner/risk_engine.py
++++ b/backend/app/scanner/risk_engine.py
+@@ -253,7 +253,9 @@
+             "ai_provider": file_ai_provider,
+             "confidence": f.control_confidence,
+             "evidence": evidence,
+-            "recommendation": RECOMMENDATIONS.get(f.category, "Add a human review step before this action executes."),
++            "recommendation": _recommendation_for(
++                RECOMMENDATIONS.get(f.category, "Add a human review step before this action executes."),
++                f.approval_detected, f.limit_detected),
+             "consequence": CONSEQUENCE_MAP.get((f.category, f.operation),"Potential real-world impact"),
+             "impact_level": IMPACT_LEVEL_MAP.get((f.category, f.operation),"MEDIUM",),
+             "control_status": _control_status(f.approval_detected,f.limit_detected,),
+@@ -272,6 +274,19 @@
+     return findings
+ 
+ 
++def _recommendation_for(base: str, approval: bool, limit: bool) -> str:
++    """Do not tell someone to add a control the scanner already found in their code."""
++    if approval and limit:
++        return ("A human-approval step and a threshold/limit check were detected before this action. Keep them, "
++                "and test that the AI cannot bypass them (for example by lowering the threshold or calling the "
++                "action directly).")
++    if approval:
++        return "A human-approval step was detected. Also add a limit (amount, count or rate cap). " + base
++    if limit:
++        return "A limit check was detected. Also add a human-approval step for values above it. " + base
++    return base
++
++
+ def _title_for(category: str, label: str, provider: str | None, ai_controlled: bool = True) -> str:
+     who = f"AI ({provider})" if provider else "AI-connected code"
+     if not ai_controlled:
+@@ -420,7 +435,9 @@
+             "ai_provider": file_ai_provider,
+             "confidence": confidence,
+             "evidence": evidence,
+-            "recommendation": RECOMMENDATIONS.get(category, "Add a human review step before this action executes."),
++            "recommendation": _recommendation_for(
++                RECOMMENDATIONS.get(category, "Add a human review step before this action executes."),
++                has_approval, has_limit),
+             "consequence": CONSEQUENCE_MAP.get((category, keyword),"Potential real-world impact",),
+             "impact_level": IMPACT_LEVEL_MAP.get((category, keyword),"MEDIUM",),
+             "control_status": _control_status(has_approval,has_limit,),
+--- a/backend/app/scanner/scan_service.py
++++ b/backend/app/scanner/scan_service.py
+@@ -171,6 +171,23 @@
+     return None
+ 
+ 
++def _release_db(db) -> None:
++    """End the open database transaction before a long, database-free phase (clone, sandboxed analysis).
++
++    A session that sits "idle in transaction" for minutes is killed by Postgres
++    (idle_in_transaction_session_timeout), and the scan then fails on its next query. Large repositories
++    (e.g. microsoft/autogen) take long enough to hit that. After commit, ORM attributes are expired and the
++    next attribute access opens a NEW transaction, so callers must read the values they need first.
++    """
++    try:
++        db.commit()
++    except Exception:
++        try:
++            db.rollback()
++        except Exception:
++            pass
++
++
+ def _prepare_source(db: Session, repository: models.Repository, local_path: str | None,
+                     github_token: str | None = None) -> tuple[str, str | None]:
+     """Resolve the directory to analyse. Returns (root, temp_dir_to_delete_or_None).
+@@ -180,21 +197,24 @@
+     """
+     if local_path:
+         return local_path, None
+-    if repository.repo_url.startswith("file://"):
++    repo_url = repository.repo_url                  # read now: attributes expire once the transaction ends
++    org_id = repository.organization_id
++    if repo_url.startswith("file://"):
+         if not allow_local_repos():
+             raise ValueError("Local repositories are disabled. Set ALLOW_LOCAL_REPOS=true for local development only.")
+-        return repository.repo_url[len("file://"):], None
+-    validate_repository_url(repository.repo_url)
++        return repo_url[len("file://"):], None
++    validate_repository_url(repo_url)
+     tmp_dir = tempfile.mkdtemp(prefix="ai_safety_scan_", dir=_work_root())
+     try:
+         if github_token is None:
+             try:
+                 from ..routers.github_oauth import GITHUB_APP_SLUG, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, get_installation_token
+                 if GITHUB_APP_SLUG and GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY:
+-                    github_token = get_installation_token(db, repository.organization_id)
++                    github_token = get_installation_token(db, org_id)
+             except Exception:
+                 github_token = None
+-        _clone_repo(repository.repo_url, tmp_dir, github_token)
++        _release_db(db)                             # the clone can take minutes: no open transaction meanwhile
++        _clone_repo(repo_url, tmp_dir, github_token)
+         _scan_debug("STAGE clone_complete")
+     except BaseException:
+         shutil.rmtree(tmp_dir, ignore_errors=True)
+@@ -346,6 +366,7 @@
+         except Exception:
+             pass
+         root, tmp_dir = _prepare_source(db, repository, local_path, github_token)
++        _release_db(db)                             # in-process analysis can also take minutes
+         result = analyze_directory(root)
+         return _persist_scan_result(db, repository, scan, result)
+ 
+@@ -462,6 +483,7 @@
+         except ValueError as exc:
+             return fail(str(exc))
+ 
++        _release_db(db)                             # the sandboxed analysis can run for minutes: no open transaction
+         work_dir = tempfile.mkdtemp(prefix="ai_safety_out_", dir=_work_root())
+         out_path = os.path.join(work_dir, "result.json")
+         proc = sp.Popen(
+--- a/backend/app/scanner/security_analyzer.py
++++ b/backend/app/scanner/security_analyzer.py
+@@ -79,6 +79,9 @@
+         control_status="UNKNOWN",
+     )
+ 
++_NON_SECRET_NAME = re.compile(r"(?i)(?:^|[_-])(?:usage|url|uri|endpoint|type|count|limit|budget|expiry|expires|"
++                              r"expiration|ttl|path|file|filename|header|prefix|length|size|name)$")
++_PLACEHOLDER_VALUE = re.compile(r"^(?:<[^<>\n]+>|\$\{?[A-Za-z_]\w*\}?|\{\{.*\}\}|%\(\w+\)s|\$\(.*\))$")
+ _NAME_LIKE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
+ _NAME_SUFFIX = ("_token", "_key", "_id", "_secret", "_password", "_session", "_user", "_org", "_name")
+ 
+@@ -94,6 +97,17 @@
+         return True
+     if _NAME_LIKE.match(val) and val.endswith(_NAME_SUFFIX) and not re.search(r"\d", val):
+         return True
++    # The variable name says what the value is, and it is not a secret: token_url, TOKEN_USAGE, secret_name...
++    if _NON_SECRET_NAME.search(ident):
++        return True
++    # Template / documentation placeholders: "<api-key>", "${TOKEN}", "{{ secret }}", "%(password)s", "$(cmd)"
++    if _PLACEHOLDER_VALUE.match(val):
++        return True
++    # A URL without embedded credentials, or a dotted class/module path (pkg.module.ClassName)
++    if re.match(r"^https?://[^\s@]*$", val):
++        return True
++    if re.match(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}$", val) and not re.search(r"(?i)password|passwd|secret|api[_-]?key", ident):
++        return True
+     return False
+ 
+ 
+@@ -299,7 +313,12 @@
+     p = file_path.replace("\\", "/").lower()
+     if any(x in p for x in (".min.js", ".map", "package-lock.json", "pnpm-lock.yaml", "yarn.lock")):
+         return []
+-    out = detect_secrets(file_path, text) + detect_data_leak(file_path, text) + detect_auth(file_path, text) + detect_injection(file_path, text)
++    if p.endswith((".json", ".yaml", ".yml")) and not p.endswith("package.json"):
++        # Data files (gallery/manifest/config JSON, YAML): a string that holds sample source code is not
++        # code that runs. Only look for leaked secrets, not for data-flow or endpoint patterns.
++        out = detect_secrets(file_path, text)
++    else:
++        out = detect_secrets(file_path, text) + detect_data_leak(file_path, text) + detect_auth(file_path, text) + detect_injection(file_path, text)
+     seen = set()
+     result = []
+     for f in out:
+--- a/backend/app/scanner/sql_flow.py
++++ b/backend/app/scanner/sql_flow.py
+@@ -320,15 +320,47 @@
+ PII_NAME = re.compile(r"(?i)\b(customer[_-]?data|user[_-]?data|personal[_-]?data|pii|credit[_-]?card|ssn)\b")
+ 
+ 
+-def _credential_to_own_provider(call: ast.Call, blob: str) -> bool:
+-    """True when the destination is a literal https URL on a known provider host and nothing
+-    in the call is personal data (credentials only)."""
++def _url_prefix(node, scope, depth=0):
++    """The literal beginning of a URL expression: a constant, a name assigned once from a constant, or
++    the constant head of an f-string / 'prefix' + x. None when it cannot be determined."""
++    if node is None or depth > 3:
++        return None
++    if isinstance(node, ast.Constant) and isinstance(node.value, str):
++        return node.value
++    if isinstance(node, ast.JoinedStr):
++        head = ""
++        for v in node.values:
++            if isinstance(v, ast.Constant) and isinstance(v.value, str):
++                head += v.value
++            else:
++                break
++        return head or None
++    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
++        return _url_prefix(node.left, scope, depth + 1)
++    if isinstance(node, ast.Name):
++        sc = scope
++        while sc is not None:
++            if node.id in sc.assigns:
++                values = [e for _, e in sc.assigns[node.id]]
++                return _url_prefix(values[0], sc, depth + 1) if len(values) == 1 else None
++            sc = sc.parent
++    return None
++
++
++def _credential_to_own_provider(call: ast.Call, blob: str, scope=None) -> bool:
++    """True when the destination is an https URL on a known provider host and nothing in the call
++    is personal data (credentials only). The URL may be a literal, a constant variable
++    (token_url = "https://github.com/..."), or an f-string whose host part is literal."""
+     if PII_NAME.search(blob):
+         return False
+     url = call.args[0] if call.args else next((k.value for k in call.keywords if k.arg == "url"), None)
+-    if not (isinstance(url, ast.Constant) and isinstance(url.value, str) and url.value.startswith("https://")):
++    prefix = _url_prefix(url, scope)
++    if not (prefix and prefix.startswith("https://")):
+         return False
+-    host = url.value[len("https://"):].split("/", 1)[0].split(":", 1)[0].lower()
++    rest = prefix[len("https://"):]
++    if "/" not in rest and not isinstance(url, ast.Constant) and not isinstance(url, ast.Name):
++        return False                                     # host may be cut off mid-way (f"https://{sub}.x.com")
++    host = rest.split("/", 1)[0].split(":", 1)[0].lower()
+     return any(host == h or host.endswith("." + h) for h in PROVIDER_HOSTS)
+ 
+ 
+@@ -356,7 +388,7 @@
+                                         blob += " " + " ".join(ast.unparse(e) for _, e in sc.assigns[n.id])
+                                         break
+                                     sc = sc.parent
+-                    if sensitive.search(blob) and not _credential_to_own_provider(child, blob):
++                    if sensitive.search(blob) and not _credential_to_own_provider(child, blob, scope):
+                         hits.append(child.lineno)
+             walk(child, scope)
+ 
+--- a/backend/test_scan_db_release.py
++++ b/backend/test_scan_db_release.py
+@@ -0,0 +1,98 @@
++"""A scan must not hold a database transaction open while it clones or analyses a repository.
++
++Postgres kills sessions that sit 'idle in transaction' too long (idle_in_transaction_session_timeout), which made
++scans of large repositories (e.g. microsoft/autogen) fail with
++`IdleInTransactionSessionTimeout ... terminating connection`.
++"""
++import os
++import subprocess
++import sys
++import textwrap
++
++sys.path.insert(0, os.path.dirname(__file__))
++
++import pytest
++from fastapi.testclient import TestClient
++
++PW = "a-very-long-passphrase-1"
++AGENT = textwrap.dedent('''
++    from openai import OpenAI
++    client = OpenAI()
++    def run(task):
++        return client.chat.completions.create(model="m", messages=[{"role": "user", "content": task}])
++''')
++
++
++@pytest.fixture()
++def env(tmp_path, monkeypatch):
++    monkeypatch.setenv("ENVIRONMENT", "development")
++    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 't.db'}")
++    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
++    for mod in list(sys.modules):
++        if mod.startswith("app"):
++            del sys.modules[mod]
++    from app.main import app
++    with TestClient(app) as c:
++        r = c.post("/auth/signup", json={"email": "a@example.com", "password": PW, "organization_name": "O"})
++        h = {"Authorization": f"Bearer {r.json()['access_token']}"}
++        rid = c.post("/repositories", headers=h,
++                     json={"repo_url": "https://github.com/octocat/Hello-World", "repo_name": "r"}).json()["id"]
++        yield rid
++
++
++def test_no_open_transaction_during_clone_and_worker(env, monkeypatch):
++    from app import models
++    from app.database import SessionLocal
++    from app.scanner import scan_service
++
++    seen = {}
++
++    def fake_clone(url, dest, token=None):
++        seen["clone_in_txn"] = db.in_transaction()
++        with open(os.path.join(dest, "agent.py"), "w") as fh:
++            fh.write(AGENT)
++
++    real_popen = subprocess.Popen
++
++    def watching_popen(*a, **kw):
++        if "app.scanner.sandbox_worker" in " ".join(map(str, a[0] if a else [])):
++            seen["worker_in_txn"] = db.in_transaction()
++        return real_popen(*a, **kw)
++
++    monkeypatch.setattr(scan_service, "_clone_repo", fake_clone)
++    monkeypatch.setattr(subprocess, "Popen", watching_popen)
++
++    with SessionLocal() as db:
++        repo = db.get(models.Repository, env)
++        scan = scan_service.run_scan_isolated(db, repo)
++        assert scan.status in {"completed", "complete", "done", "succeeded"} or scan.status != "failed", scan.error
++
++    assert seen.get("clone_in_txn") is False, "a transaction was open while cloning"
++    assert seen.get("worker_in_txn") is False, "a transaction was open while the sandbox worker ran"
++
++
++def test_no_open_transaction_during_in_process_analysis(env, monkeypatch):
++    from app import models
++    from app.database import SessionLocal
++    from app.scanner import scan_service
++
++    seen = {}
++
++    def fake_clone(url, dest, token=None):
++        with open(os.path.join(dest, "agent.py"), "w") as fh:
++            fh.write(AGENT)
++
++    real_analyze = scan_service.analyze_directory
++
++    def watching_analyze(root, *a, **kw):
++        seen["analyze_in_txn"] = db.in_transaction()
++        return real_analyze(root, *a, **kw)
++
++    monkeypatch.setattr(scan_service, "_clone_repo", fake_clone)
++    monkeypatch.setattr(scan_service, "analyze_directory", watching_analyze)
++
++    with SessionLocal() as db:
++        repo = db.get(models.Repository, env)
++        scan_service.run_scan(db, repo)
++
++    assert seen.get("analyze_in_txn") is False, "a transaction was open during in-process analysis"
+--- a/backend/test_scanner_regressions.py
++++ b/backend/test_scanner_regressions.py
+@@ -78,3 +78,56 @@
+     src = '# DB_PASSWORD = "Xq7!rT9zLm2Vw8Kd4Hs"\n'
+     found = caps(analyze_security("app/config.py", src))
+     assert "hardcoded_credential" in found
++
++
++# ---- data files are not code; guarded actions do not get "add an approval" advice ----
++def test_json_data_file_does_not_produce_action_leads():
++    from app.scanner import capability_extractor
++    text = '{"why": "tool may execute and update records", "cmd": "subprocess.run(x)"}'
++    a = capability_extractor.analyze_file("benchmark/manifest.json", text)
++    assert a.dangerous_calls == [] and not a.has_ai
++
++
++def test_package_json_is_not_skipped_like_other_data_files():
++    """package.json keeps the normal text analysis (behaviour unchanged); other .json files are skipped."""
++    from app.scanner import capability_extractor
++    text = 'import OpenAI from "openai"'
++    assert capability_extractor.analyze_file("package.json", text).has_ai
++    assert not capability_extractor.analyze_file("manifest.json", text).has_ai
++
++
++def test_guarded_refund_recommendation_does_not_ask_for_existing_controls():
++    from app.scanner import capability_extractor, risk_engine
++    src = '''
++from openai import OpenAI
++import stripe
++client = OpenAI()
++MAX = 100
++def handle(msg):
++    d = client.chat.completions.create(model="m", messages=[{"role": "user", "content": msg}])
++    amount = d["amount"]
++    if amount > MAX:
++        return queue_for_human_approval(d)
++    return stripe.Refund.create(payment_intent=d["pid"], amount=amount)
++def queue_for_human_approval(d):
++    return {"status": "pending_approval"}
++'''
++    a = capability_extractor.analyze_file("agents/r.py", src)
++    f = [x for x in risk_engine.build_findings_for_file(a, True) if x["capability"] == "refund"][0]
++    assert f["control_status"] == "CONTROLLED"
++    assert "were detected" in f["recommendation"] and "Require human approval above" not in f["recommendation"]
++
++
++def test_unguarded_refund_keeps_original_recommendation():
++    from app.scanner import capability_extractor, risk_engine
++    src = '''
++from openai import OpenAI
++import stripe
++client = OpenAI()
++def handle(msg):
++    d = client.chat.completions.create(model="m", messages=[{"role": "user", "content": msg}])
++    return stripe.Refund.create(payment_intent=d["pid"], amount=d["amount"])
++'''
++    a = capability_extractor.analyze_file("agents/r.py", src)
++    f = [x for x in risk_engine.build_findings_for_file(a, True) if x["capability"] == "refund"][0]
++    assert f["control_status"] == "UNCONTROLLED" and "Require human approval" in f["recommendation"]

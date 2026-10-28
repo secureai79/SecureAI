@@ -1,0 +1,71 @@
+--- a/backend/app/scanner/file_selector.py
++++ b/backend/app/scanner/file_selector.py
+@@ -53,6 +53,12 @@
+     re.compile(r"(^|/)examples?(/|$)"),
+     re.compile(r"(^|/)fixtures?(/|$)"),
+     re.compile(r"(^|/)mocks?(/|$)"),
++    re.compile(r"(^|/)benchmarks?(/|$)"),
++    re.compile(r"(^|/)samples?(/|$)"),
++    re.compile(r"(^|/)demos?(/|$)"),
++    re.compile(r"(^|/)demo[_-][^/]+(/|$)"),
++    re.compile(r"(^|/)(testdata|test_data|e2e|cypress)(/|$)"),
++    re.compile(r"(^|/)[^/]*[._-](backup|bak|orig)[^/]*$"),    # editor/backup leftovers, e.g. foo.84pass.backup.py
+     # Deliberately NOT excluding a bare "tools/" directory: in agent
+     # frameworks that's frequently where the agent's actual callable
+     # capabilities live (e.g. agency-swarm's tools/built_in/PersistentShellTool.py
+--- a/backend/app/scanner/risk_engine.py
++++ b/backend/app/scanner/risk_engine.py
+@@ -160,7 +160,11 @@
+       score, so "Fix My Score" shouldn't imply it would)
+     """
+     non_runtime = file_selector.is_non_runtime_path(finding["file_path"])
+-    scored = analysis.used_ast and not non_runtime
++    # A capability that no AI output demonstrably reaches, in a file that does not use any AI SDK or
++    # agent framework, is ordinary application code (e.g. a git subprocess call). Report it as a lead;
++    # do not let it lower an *AI* safety score.
++    no_ai_link = finding.get("ai_controlled") is False and not finding.get("ai_provider")
++    scored = analysis.used_ast and not non_runtime and not no_ai_link
+ 
+     finding["scored"] = scored
+     if scored:
+@@ -171,6 +175,8 @@
+         reasons.append("regex/keyword match, no data-flow verification available for this file type")
+     if non_runtime:
+         reasons.append("path looks like test/tooling/docs/examples code, not agent runtime code")
++    if no_ai_link:
++        reasons.append("no AI SDK in this file and no traced data-flow from AI output reaches this call")
+     reason_text = "; ".join(reasons)
+ 
+     finding["severity"] = "LOW"
+--- a/backend/app/scanner/detectors.py
++++ b/backend/app/scanner/detectors.py
+@@ -172,6 +172,19 @@
+     return found
+ 
+ 
++_DATA_RECEIVER_EXACT = {"os", "fs", "db", "shutil", "path", "pathlib", "s3", "prisma", "knex", "redis", "mongo",
++                        "session", "client", "bucket", "unlink"}
++_DATA_RECEIVER_PARTS = ("repo", "table", "model", "collection", "storage", "store", "cache", "queryset",
++                        "file", "record", "database", "dbo", "mongoose", "sequelize", "bucket")
++
++
++def _data_like_receiver(obj: str) -> bool:
++    """`x.remove()` is only a data-deletion capability when x looks like a DB/file/storage handle.
++    overlay.remove(), bar.remove(), el.remove() are DOM or collection housekeeping."""
++    obj = (obj or "").lower()
++    return obj in _DATA_RECEIVER_EXACT or any(p in obj for p in _DATA_RECEIVER_PARTS)
++
++
+ def detect_dangerous_functions(text: str) -> list[dict]:
+     """Scan function/call names and raw SQL for potentially dangerous operations."""
+     found = []
+@@ -220,6 +233,9 @@
+             # to use security-sensitive English words.
+                         # Ignore common frontend collection/UI operations that happen
+             # to use security-sensitive English words.
++            if keyword == "remove" and exact_match and not _data_like_receiver(obj):
++                continue
++
+             if keyword == "remove" and exact_match:
+                 if obj in {
+                     "",
