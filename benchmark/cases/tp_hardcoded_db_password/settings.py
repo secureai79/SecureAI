@@ -1,1 +1,0 @@
-DB_PASSWORD = "Xk29!fQ7vLm3Zp81"
