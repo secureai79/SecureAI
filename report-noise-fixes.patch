@@ -1,0 +1,391 @@
+--- a/backend/app/scanner/agent_frameworks.py
++++ b/backend/app/scanner/agent_frameworks.py
+@@ -1,154 +1,162 @@
+-"""Framework-specific agent risks that no generic data-flow rule can see.
+-
+-Several agent frameworks can run model-written code on the host with a single constructor
+-option. That is the most dangerous capability an agent can have, and it never appears as an
+-explicit ``subprocess`` call in the user's code, so it is recognised by the framework's own
+-switches:
+-
+-* smolagents ``CodeAgent`` (local Python executor unless ``executor_type`` is docker/e2b/modal/wasm)
+-* AutoGen ``LocalCommandLineCodeExecutor`` / ``code_execution_config={"use_docker": False}``
+-* CrewAI ``code_execution_mode="unsafe"`` / ``CodeInterpreterTool(unsafe_mode=True)``
+-* LangChain ``allow_dangerous_code=True`` and Python/Shell REPL tools handed to an agent
+-* OpenAI Agents SDK ``LocalShellTool``
+-
+-Findings reuse the existing ``INFRASTRUCTURE / execute`` category so policies such as
+-``match: {category: INFRASTRUCTURE, capability: execute}`` cover them.
+-"""
+-from __future__ import annotations
+-
+-import ast
+-import re
+-from types import SimpleNamespace
+-
+-from .injection_analyzer import _chain
+-
+-HINTS = ("smolagents", "autogen", "crewai", "langchain", "agents", "CodeAgent", "LocalShellTool")
+-SANDBOXED_EXECUTORS = {"docker", "e2b", "modal", "wasm", "blaxel"}
+-DANGEROUS_IMPORTS = {"os", "subprocess", "sys", "shutil", "socket", "ctypes", "importlib", "builtins", "pty", "multiprocessing"}
+-REPL_TOOLS = {"PythonREPLTool", "PythonAstREPLTool", "PythonREPL", "ShellTool", "BashProcess", "LLMBashChain", "PALChain"}
+-AGENT_BUILDERS = {"initialize_agent", "AgentExecutor", "create_react_agent", "create_tool_calling_agent",
+-                  "create_openai_tools_agent", "create_openai_functions_agent", "create_structured_chat_agent", "Agent"}
+-
+-
+-def _const(node):
+-    return node.value if isinstance(node, ast.Constant) else None
+-
+-
+-def _kw(call: ast.Call, name: str):
+-    return next((k.value for k in call.keywords if k.arg == name), None)
+-
+-
+-def _finding(path, line, framework, title, severity, evidence, recommendation, chain, snippet, confidence=0.85) -> dict:
+-    return {
+-        "title": title, "severity": severity, "category": "INFRASTRUCTURE", "file_path": path, "line": int(line),
+-        "capability": "execute", "ai_provider": framework, "confidence": confidence, "evidence": evidence,
+-        "recommendation": recommendation,
+-        "consequence": "Model-written code runs with the host's permissions, so a prompt injection becomes remote code execution.",
+-        "impact_level": "HIGH", "control_status": "No sandbox detected", "ai_connected": True, "ai_controlled": True,
+-        "control_confidence": confidence, "capability_chain": chain, "function_name": "module",
+-        "call_chain": f"{framework}.code_execution", "occurrence_index": 1, "human_approval_detected": False,
+-        "limit_detected": False, "snippet": snippet,
+-    }
+-
+-
+-def analyze_text(path: str, text: str) -> list[dict]:
+-    if not path.lower().endswith(".py") or not any(h in text for h in HINTS):
+-        return []
+-    try:
+-        tree = ast.parse(text)
+-    except (SyntaxError, RecursionError, ValueError):
+-        return []
+-    lines = text.splitlines()
+-    snip = lambda n: lines[n - 1].strip() if 0 < n <= len(lines) else ""
+-    out: list[dict] = []
+-    seen: set = set()
+-    builds_agent = any(isinstance(n, ast.Call) and _chain(n.func).split(".")[-1] in AGENT_BUILDERS for n in ast.walk(tree))
+-
+-    def add(f):
+-        key = (f["line"], f["ai_provider"])
+-        if key not in seen:
+-            seen.add(key)
+-            out.append(f)
+-
+-    for node in ast.walk(tree):
+-        if not isinstance(node, ast.Call):
+-            continue
+-        tail = _chain(node.func).split(".")[-1]
+-        line = node.lineno
+-
+-        # ---- smolagents
+-        if tail == "CodeAgent":
+-            exe = _const(_kw(node, "executor_type"))
+-            if exe in SANDBOXED_EXECUTORS:
+-                continue
+-            imports = _kw(node, "additional_authorized_imports")
+-            names = [_const(e) for e in imports.elts] if isinstance(imports, (ast.List, ast.Tuple, ast.Set)) else []
+-            wide = "*" in names or bool(DANGEROUS_IMPORTS & {str(n).split(".")[0] for n in names if n})
+-            add(_finding(path, line, "smolagents",
+-                         "Agent (smolagents CodeAgent) runs model-written Python on the host"
+-                         + (" with dangerous imports authorised" if wide else ""),
+-                         "HIGH" if wide else "MEDIUM",
+-                         ["CodeAgent executes code the model writes", f"executor_type={exe!r}: local executor (not docker/e2b/modal/wasm)"]
+-                         + ([f"additional_authorized_imports allows {names}"] if wide else
+-                            ["Imports are restricted, but the local Python executor is not a security boundary"]),
+-                         "Use executor_type='docker', 'e2b', 'modal' or 'wasm' so generated code runs in an isolated sandbox without your credentials.",
+-                         ["Untrusted content / user request", "Model writes Python", "Local executor", "Host process"], snip(line)))
+-
+-        # ---- AutoGen
+-        elif tail == "LocalCommandLineCodeExecutor":
+-            add(_finding(path, line, "AutoGen", "Agent (AutoGen) executes model-written code on the host (LocalCommandLineCodeExecutor)",
+-                         "HIGH", ["LocalCommandLineCodeExecutor runs generated code directly in the local environment"],
+-                         "Use DockerCommandLineCodeExecutor (or a remote sandbox) and keep credentials out of that environment.",
+-                         ["Model", "Generated code", "LocalCommandLineCodeExecutor", "Host"], snip(line)))
+-        elif tail in {"UserProxyAgent", "ConversableAgent", "AssistantAgent", "CodeExecutorAgent"}:
+-            cfg = _kw(node, "code_execution_config")
+-            if isinstance(cfg, ast.Dict):
+-                for k, v in zip(cfg.keys, cfg.values):
+-                    if _const(k) == "use_docker" and _const(v) is False:
+-                        add(_finding(path, line, "AutoGen", f"Agent (AutoGen {tail}) executes model-written code on the host (use_docker=False)",
+-                                     "HIGH", ["code_execution_config disables Docker, so generated code runs locally"],
+-                                     "Set use_docker=True (or use a Docker/remote executor) and never run generated code with your own credentials.",
+-                                     ["Model", "Generated code", "Local execution", "Host"], snip(line)))
+-
+-        # ---- CrewAI
+-        elif tail == "Agent" and _const(_kw(node, "code_execution_mode")) == "unsafe":
+-            add(_finding(path, line, "CrewAI", "Agent (CrewAI) runs model-written code directly on the host (code_execution_mode='unsafe')",
+-                         "HIGH", ["code_execution_mode='unsafe' disables the Docker sandbox"],
+-                         "Use the default code_execution_mode='safe' (Docker).",
+-                         ["Model", "Generated code", "Unsandboxed execution", "Host"], snip(line)))
+-        elif tail == "CodeInterpreterTool" and _const(_kw(node, "unsafe_mode")) is True:
+-            add(_finding(path, line, "CrewAI", "CrewAI CodeInterpreterTool runs in unsafe mode (no Docker sandbox)",
+-                         "HIGH", ["unsafe_mode=True executes code in the host environment"],
+-                         "Remove unsafe_mode so the tool runs in Docker.", ["Model", "CodeInterpreterTool", "Host"], snip(line)))
+-
+-        # ---- OpenAI Agents SDK
+-        elif tail == "LocalShellTool":
+-            add(_finding(path, line, "OpenAI Agents SDK", "Agent (OpenAI Agents SDK) can run shell commands on the host (LocalShellTool)",
+-                         "HIGH", ["LocalShellTool executes the commands the model requests"],
+-                         "Remove it, or execute commands in a sandbox with an allow-list and human approval.",
+-                         ["Model", "LocalShellTool", "Host shell"], snip(line)))
+-
+-        # ---- LangChain
+-        if _const(_kw(node, "allow_dangerous_code")) is True:
+-            add(_finding(path, line, "LangChain", f"LangChain agent '{tail}' is allowed to execute model-written code (allow_dangerous_code=True)",
+-                         "HIGH", ["allow_dangerous_code=True is an explicit opt-in to running generated Python on the host"],
+-                         "Run generated code in a sandbox, or remove the opt-in and use a restricted tool.",
+-                         ["Model", "Generated code", "Host Python"], snip(line)))
+-        elif tail in REPL_TOOLS and builds_agent:
+-            add(_finding(path, line, "LangChain", f"Agent is given {tail}, which executes model-controlled input on the host",
+-                         "HIGH", [f"{tail} is available to an agent in this file"],
+-                         "Replace it with a sandboxed executor or a narrowly scoped tool, and require approval.",
+-                         ["Model", tail, "Host"], snip(line), confidence=0.75))
+-    return out
+-
+-
+-def analyze_files(candidates: list[tuple[str, str]], gate) -> list[dict]:
+-    out: list[dict] = []
+-    for path, text in candidates:
+-        try:
+-            found = analyze_text(path, text)
+-        except Exception:
+-            continue
+-        shim = SimpleNamespace(used_ast=True, file_path=path)
+-        out.extend(gate(f, shim) for f in found)
++"""Framework-specific agent risks that no generic data-flow rule can see.
++
++Several agent frameworks can run model-written code on the host with a single constructor
++option. That is the most dangerous capability an agent can have, and it never appears as an
++explicit ``subprocess`` call in the user's code, so it is recognised by the framework's own
++switches:
++
++* smolagents ``CodeAgent`` (local Python executor unless ``executor_type`` is docker/e2b/modal/wasm)
++* AutoGen ``LocalCommandLineCodeExecutor`` / ``code_execution_config={"use_docker": False}``
++* CrewAI ``code_execution_mode="unsafe"`` / ``CodeInterpreterTool(unsafe_mode=True)``
++* LangChain ``allow_dangerous_code=True`` and Python/Shell REPL tools handed to an agent
++* OpenAI Agents SDK ``LocalShellTool``
++
++Findings reuse the existing ``INFRASTRUCTURE / execute`` category so policies such as
++``match: {category: INFRASTRUCTURE, capability: execute}`` cover them.
++"""
++from __future__ import annotations
++
++import ast
++import re
++from types import SimpleNamespace
++
++from .injection_analyzer import _chain
++
++HINTS = ("smolagents", "autogen", "crewai", "langchain", "agents", "CodeAgent", "LocalShellTool")
++SANDBOXED_EXECUTORS = {"docker", "e2b", "modal", "wasm", "blaxel"}
++DANGEROUS_IMPORTS = {"os", "subprocess", "sys", "shutil", "socket", "ctypes", "importlib", "builtins", "pty", "multiprocessing"}
++REPL_TOOLS = {"PythonREPLTool", "PythonAstREPLTool", "PythonREPL", "ShellTool", "BashProcess", "LLMBashChain", "PALChain"}
++AGENT_BUILDERS = {"initialize_agent", "AgentExecutor", "create_react_agent", "create_tool_calling_agent",
++                  "create_openai_tools_agent", "create_openai_functions_agent", "create_structured_chat_agent", "Agent"}
++
++
++def _const(node):
++    return node.value if isinstance(node, ast.Constant) else None
++
++
++def _kw(call: ast.Call, name: str):
++    return next((k.value for k in call.keywords if k.arg == name), None)
++
++
++def _finding(path, line, framework, title, severity, evidence, recommendation, chain, snippet, confidence=0.85) -> dict:
++    return {
++        "title": title, "severity": severity, "category": "INFRASTRUCTURE", "file_path": path, "line": int(line),
++        "capability": "execute", "ai_provider": framework, "confidence": confidence, "evidence": evidence,
++        "recommendation": recommendation,
++        "consequence": "Model-written code runs with the host's permissions, so a prompt injection becomes remote code execution.",
++        "impact_level": "HIGH", "control_status": "No sandbox detected", "ai_connected": True, "ai_controlled": True,
++        "control_confidence": confidence, "capability_chain": chain, "function_name": "module",
++        "call_chain": f"{framework}.code_execution", "occurrence_index": 1, "human_approval_detected": False,
++        "limit_detected": False, "snippet": snippet,
++    }
++
++
++def analyze_text(path: str, text: str) -> list[dict]:
++    if not path.lower().endswith(".py") or not any(h in text for h in HINTS):
++        return []
++    try:
++        tree = ast.parse(text)
++    except (SyntaxError, RecursionError, ValueError):
++        return []
++    lines = text.splitlines()
++    snip = lambda n: lines[n - 1].strip() if 0 < n <= len(lines) else ""
++    out: list[dict] = []
++    seen: set = set()
++    builds_agent = any(isinstance(n, ast.Call) and _chain(n.func).split(".")[-1] in AGENT_BUILDERS for n in ast.walk(tree))
++
++    func_spans = [(n.lineno, getattr(n, "end_lineno", n.lineno)) for n in ast.walk(tree)
++                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
++
++    def _enclosing(line):
++        spans = [sp for sp in func_spans if sp[0] <= line <= sp[1]]
++        return max(spans)[0] if spans else 0          # innermost function, 0 = module level
++
++    def add(f):
++        # An if/else that returns the same executor on two branches is one finding, not two.
++        key = (f["title"], f["ai_provider"], _enclosing(f["line"]) or f["line"])
++        if key not in seen:
++            seen.add(key)
++            out.append(f)
++
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Call):
++            continue
++        tail = _chain(node.func).split(".")[-1]
++        line = node.lineno
++
++        # ---- smolagents
++        if tail == "CodeAgent":
++            exe = _const(_kw(node, "executor_type"))
++            if exe in SANDBOXED_EXECUTORS:
++                continue
++            imports = _kw(node, "additional_authorized_imports")
++            names = [_const(e) for e in imports.elts] if isinstance(imports, (ast.List, ast.Tuple, ast.Set)) else []
++            wide = "*" in names or bool(DANGEROUS_IMPORTS & {str(n).split(".")[0] for n in names if n})
++            add(_finding(path, line, "smolagents",
++                         "Agent (smolagents CodeAgent) runs model-written Python on the host"
++                         + (" with dangerous imports authorised" if wide else ""),
++                         "HIGH" if wide else "MEDIUM",
++                         ["CodeAgent executes code the model writes", f"executor_type={exe!r}: local executor (not docker/e2b/modal/wasm)"]
++                         + ([f"additional_authorized_imports allows {names}"] if wide else
++                            ["Imports are restricted, but the local Python executor is not a security boundary"]),
++                         "Use executor_type='docker', 'e2b', 'modal' or 'wasm' so generated code runs in an isolated sandbox without your credentials.",
++                         ["Untrusted content / user request", "Model writes Python", "Local executor", "Host process"], snip(line)))
++
++        # ---- AutoGen
++        elif tail == "LocalCommandLineCodeExecutor":
++            add(_finding(path, line, "AutoGen", "Agent (AutoGen) executes model-written code on the host (LocalCommandLineCodeExecutor)",
++                         "HIGH", ["LocalCommandLineCodeExecutor runs generated code directly in the local environment"],
++                         "Use DockerCommandLineCodeExecutor (or a remote sandbox) and keep credentials out of that environment.",
++                         ["Model", "Generated code", "LocalCommandLineCodeExecutor", "Host"], snip(line)))
++        elif tail in {"UserProxyAgent", "ConversableAgent", "AssistantAgent", "CodeExecutorAgent"}:
++            cfg = _kw(node, "code_execution_config")
++            if isinstance(cfg, ast.Dict):
++                for k, v in zip(cfg.keys, cfg.values):
++                    if _const(k) == "use_docker" and _const(v) is False:
++                        add(_finding(path, line, "AutoGen", f"Agent (AutoGen {tail}) executes model-written code on the host (use_docker=False)",
++                                     "HIGH", ["code_execution_config disables Docker, so generated code runs locally"],
++                                     "Set use_docker=True (or use a Docker/remote executor) and never run generated code with your own credentials.",
++                                     ["Model", "Generated code", "Local execution", "Host"], snip(line)))
++
++        # ---- CrewAI
++        elif tail == "Agent" and _const(_kw(node, "code_execution_mode")) == "unsafe":
++            add(_finding(path, line, "CrewAI", "Agent (CrewAI) runs model-written code directly on the host (code_execution_mode='unsafe')",
++                         "HIGH", ["code_execution_mode='unsafe' disables the Docker sandbox"],
++                         "Use the default code_execution_mode='safe' (Docker).",
++                         ["Model", "Generated code", "Unsandboxed execution", "Host"], snip(line)))
++        elif tail == "CodeInterpreterTool" and _const(_kw(node, "unsafe_mode")) is True:
++            add(_finding(path, line, "CrewAI", "CrewAI CodeInterpreterTool runs in unsafe mode (no Docker sandbox)",
++                         "HIGH", ["unsafe_mode=True executes code in the host environment"],
++                         "Remove unsafe_mode so the tool runs in Docker.", ["Model", "CodeInterpreterTool", "Host"], snip(line)))
++
++        # ---- OpenAI Agents SDK
++        elif tail == "LocalShellTool":
++            add(_finding(path, line, "OpenAI Agents SDK", "Agent (OpenAI Agents SDK) can run shell commands on the host (LocalShellTool)",
++                         "HIGH", ["LocalShellTool executes the commands the model requests"],
++                         "Remove it, or execute commands in a sandbox with an allow-list and human approval.",
++                         ["Model", "LocalShellTool", "Host shell"], snip(line)))
++
++        # ---- LangChain
++        if _const(_kw(node, "allow_dangerous_code")) is True:
++            add(_finding(path, line, "LangChain", f"LangChain agent '{tail}' is allowed to execute model-written code (allow_dangerous_code=True)",
++                         "HIGH", ["allow_dangerous_code=True is an explicit opt-in to running generated Python on the host"],
++                         "Run generated code in a sandbox, or remove the opt-in and use a restricted tool.",
++                         ["Model", "Generated code", "Host Python"], snip(line)))
++        elif tail in REPL_TOOLS and builds_agent:
++            add(_finding(path, line, "LangChain", f"Agent is given {tail}, which executes model-controlled input on the host",
++                         "HIGH", [f"{tail} is available to an agent in this file"],
++                         "Replace it with a sandboxed executor or a narrowly scoped tool, and require approval.",
++                         ["Model", tail, "Host"], snip(line), confidence=0.75))
++    return out
++
++
++def analyze_files(candidates: list[tuple[str, str]], gate) -> list[dict]:
++    out: list[dict] = []
++    for path, text in candidates:
++        try:
++            found = analyze_text(path, text)
++        except Exception:
++            continue
++        shim = SimpleNamespace(used_ast=True, file_path=path)
++        out.extend(gate(f, shim) for f in found)
+     return out
+\ No newline at end of file
+--- a/backend/app/scanner/capability_extractor.py
++++ b/backend/app/scanner/capability_extractor.py
+@@ -19,6 +19,15 @@
+         return len(self.ai_providers) > 0
+ 
+ 
++_UI_EXT = (".tsx", ".jsx", ".vue", ".svelte")
++_UI_DIRS = ("/frontend/", "/components/", "/client/src/")
++
++
++def _is_ui_file(file_path: str) -> bool:
++    p = "/" + file_path.replace("\\", "/").lower().lstrip("/")
++    return p.endswith(_UI_EXT) or any(d in p for d in _UI_DIRS)
++
++
+ def analyze_file(file_path: str, text: str) -> FileAnalysis:
+     is_python = file_path.endswith(".py")
+ 
+@@ -76,6 +85,11 @@
+     )
+ 
+     dangerous_calls = detectors.detect_dangerous_functions(text)
++    if not ai_providers and _is_ui_file(file_path):
++        # Browser UI code (React/Vue components, frontend helpers) cannot be an agent's server-side
++        # capability, and helper names like truncateText() / removeToken() / eraseCookie() are not
++        # database or filesystem actions. The keyword fallback only produced noise here.
++        dangerous_calls = []
+ 
+     return FileAnalysis(
+         file_path=file_path,
+--- a/backend/test_scanner_regressions.py
++++ b/backend/test_scanner_regressions.py
+@@ -186,3 +186,26 @@
+ def test_report_shows_no_controls_line_for_non_action_findings(monkeypatch):
+     text = _report_text(monkeypatch, [_finding(control_status="UNKNOWN", category="SECRETS", capability="hardcoded_credential")])
+     assert "Controls:" not in text
++
++
++def test_frontend_helper_names_are_not_database_actions():
++    from app.scanner import capability_extractor as ce
++    code = "export function truncateText(t){return t}\nfunction f(){removeToken(); eraseCookie('a')}\n"
++    assert ce.analyze_file("pkg/frontend/src/components/utils.ts", code).dangerous_calls == []
++    assert ce.analyze_file("pkg/ui/Panel.tsx", code).dangerous_calls == []
++    # server-side JS that uses an AI SDK is still analysed
++    srv = "const openai = require('openai');\nfunction f(){ db.delete(1) }\n"
++    assert ce.analyze_file("server/tool.js", srv).dangerous_calls
++
++
++def test_executor_factory_with_two_branches_is_one_finding():
++    from app.scanner import agent_frameworks as af
++    src = (
++        "from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor\n"
++        "def make(work_dir=None):\n"
++        "    if work_dir:\n"
++        "        return LocalCommandLineCodeExecutor(work_dir=work_dir)\n"
++        "    else:\n"
++        "        return LocalCommandLineCodeExecutor()\n"
++    )
++    assert len(af.analyze_text("make.py", src)) == 1
+--- a/benchmark/build_cases.py
++++ b/benchmark/build_cases.py
+@@ -411,6 +411,10 @@
+     subprocess.run(["git", "-C", str(root), "push", "--force"])
+ '''}, expect=["execute"], why="git push stays reported even with -C")
+ 
++# ---------------- round 5: found on the deployed reports (autogen / SecureAI) ----------------
++case("fp_ext_frontend_helper_names", {"frontend/src/components/utils.ts": "export function truncateText(t: string) { return t }\\nexport function eraseCookie(n: string) { document.cookie = n }\\nfunction logout() { removeToken() }\\n"},
++     forbid=["truncate", "erase", "remove", "delete"], why="UI helper names that start with a dangerous word are not database actions")
++
+ if os.path.isdir(ROOT):
+     shutil.rmtree(ROOT)
+ for name, c in C.items():
